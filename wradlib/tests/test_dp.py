@@ -26,8 +26,6 @@ class KDPFromPHIDPTest(unittest.TestCase):
         self.rho = np.random.uniform(0.8, 1.0, len(r))
 
     def test_process_raw_phidp_vulpiani(self):
-        dp.process_raw_phidp_vulpiani(self.phidp_raw, dr=self.dr,
-                                      copy=True)
         dp.process_raw_phidp_vulpiani(self.phidp_raw, dr=self.dr)
 
     def test_kdp_from_phidp(self):
@@ -35,12 +33,11 @@ class KDPFromPHIDPTest(unittest.TestCase):
         dp.kdp_from_phidp(self.phidp_raw, dr=self.dr, method='slow')
 
     def test_linear_despeckle(self):
-        dp.linear_despeckle(self.phidp_raw, ndespeckle=3, copy=True)
-        dp.linear_despeckle(self.phidp_raw, ndespeckle=5, copy=True)
+        dp.linear_despeckle(self.phidp_raw, ndespeckle=3)
+        dp.linear_despeckle(self.phidp_raw, ndespeckle=5)
 
     def test_unfold_phi_naive(self):
         dp.unfold_phi_naive(self.phidp_raw, self.rho)
-        dp.unfold_phi_naive(self.phidp_raw, self.rho, copy=True)
 
     def test_unfold_phi_vulpiani(self):
         dp.unfold_phi_vulpiani(self.phidp_raw, self.kdp_true)

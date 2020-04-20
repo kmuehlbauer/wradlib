@@ -52,12 +52,13 @@ __doc__ = __doc__.format('\n   '.join(__all__))
 
 import numpy as np
 from scipy import interpolate, ndimage, stats
+import xarray as xr
 
-from wradlib import trafo, util
+from wradlib import io, trafo, util
 
 
-def process_raw_phidp_vulpiani(phidp, dr, ndespeckle=5, winlen=7,
-                               niter=2, copy=False, **kwargs):
+def process_raw_phidp_vulpiani(phidp, dr=None, ndespeckle=5, winlen=7,
+                               niter=2, **kwargs):
     """Establish consistent :math:`Phi_{DP}` profiles from raw data.
 
     This approach is based on :cite:`Vulpiani2012` and involves a
@@ -74,10 +75,8 @@ def process_raw_phidp_vulpiani(phidp, dr, ndespeckle=5, winlen=7,
 
     Parameters
     ----------
-    phidp : array
-        array of shape (n azimuth angles, n range gates)
-    dr : float
-        gate length in km
+    phidp : :class:`xarray.DataArray`
+        Differential Phase
     ndespeckle : int
         ``ndespeckle`` parameter of :func:`~wradlib.dp.linear_despeckle`
     winlen : integer
@@ -85,16 +84,12 @@ def process_raw_phidp_vulpiani(phidp, dr, ndespeckle=5, winlen=7,
     niter : int
         Number of iterations in which :math:`Phi_{DP}` is retrieved from
         :math:`K_{DP}` and vice versa
-    copy : bool
-        if True, the original :math:`Phi_{DP}` array will remain unchanged
 
     Returns
     -------
-    phidp : :class:`numpy:numpy.ndarray`
-        array of shape (n azimuth angles, n range gates) reconstructed
-        :math:`Phi_{DP}`
-    kdp : :class:`numpy:numpy.ndarray`
-        array of shape (n azimuth angles, n range gates)
+    phidp : :class:`xarray.DataArray`
+        reconstructed :math:`Phi_{DP}`
+    kdp : :class:`xarray.DataArray`
         ``kdp`` estimate corresponding to ``phidp`` output
 
     Examples
@@ -103,40 +98,66 @@ def process_raw_phidp_vulpiani(phidp, dr, ndespeckle=5, winlen=7,
     See :ref:`/notebooks/verification/wradlib_verify_example.ipynb`.
 
     """
-    if copy:
-        phidp = phidp.copy()
+    # numpy -> xarray
+    is_numpy = False
+    if not isinstance(phidp, xr.DataArray):
+        is_numpy = True
+        shape = phidp.shape
+        phidp = xr.DataArray(phidp, name='PHIDP')
+        dims = phidp.dims
+        phidp = phidp.to_dataset().rename_dims({dims[-1]: 'range'}).PHIDP
+        phidp = phidp.assign_coords(
+            {'range': (['range'], np.arange(shape[-1]) * dr * 1000.)})
 
     # despeckle
-    phidp = linear_despeckle(phidp, ndespeckle)
+    phidp_attrs = phidp.attrs
+    phidp = linear_despeckle(phidp, ndespeckle=3)
+
+    # retrieve dr gatelength in km
+    dr = phidp.range.diff(dim='range')[0] / 1000.
+
     # kdp retrieval first guess
-    kdp = kdp_from_phidp(phidp, dr=dr, winlen=winlen, **kwargs)
-    # remove extreme values
-    kdp[kdp > 20] = 0
-    kdp[np.logical_and(kdp < -2, kdp > -20)] = 0
+    kdp = kdp_from_phidp(phidp, winlen=winlen, **kwargs)
+
+    # remove extreme values by masking-filling
+    kdp = kdp.where(kdp <= 20)
+    kdp = kdp.where((kdp >= -2) | (kdp <= -20))
+    kdp = kdp.fillna(0)
 
     # unfold phidp
     phidp = unfold_phi_vulpiani(phidp, kdp)
 
     # clean up unfolded PhiDP
-    phidp[phidp > 360] = np.nan
+    # phidp[phidp > 360] = np.nan
 
     # kdp retrieval second guess
-    kdp = kdp_from_phidp(phidp, dr=dr, winlen=winlen, **kwargs)
-    kdp = _fill_sweep(kdp)
+    kdp = kdp_from_phidp(phidp, winlen=winlen, **kwargs)
+    # interpolate nans along 'range'
+    kdp = kdp.interpolate_na(dim='range')
 
-    # remove remaining extreme values
-    kdp[kdp > 20] = 0
-    kdp[kdp < -2] = 0
+    # remove remaining extreme values (by masking-filling)
+    kdp = kdp.where((kdp <= 20) & (kdp >= -2)).fillna(0)
 
     # start the actual phidp/kdp iteration
     for i in range(niter):
         # phidp from kdp through integration
-        phidp = 2 * np.cumsum(kdp, axis=-1) * dr
+        phidp = 2 * kdp.cumsum(dim='range') * dr
         # kdp from phidp by convolution
-        kdp = kdp_from_phidp(phidp, dr=dr, winlen=winlen, **kwargs)
-        # convert all NaNs to zeros (normally, this line can be assumed
-        # to be redundant)
-        kdp = _fill_sweep(kdp)
+        kdp = kdp_from_phidp(phidp, winlen=winlen, **kwargs)
+
+    # we can output a dataset here with both dataarrays combined
+    phidp.attrs = phidp_attrs
+    phidp.name = 'PHIDP'
+
+    kdp_attrs = {}
+    kdp_attrs.update(io.xarray.moments_mapping['KDP'])
+    kdp.name = kdp_attrs.pop('short_name')
+    kdp_attrs.pop('gamic')
+    kdp.attrs = kdp_attrs
+
+    if is_numpy:
+        phidp = phidp.values
+        kdp = kdp.values
 
     return phidp, kdp
 
@@ -149,26 +170,43 @@ def unfold_phi_vulpiani(phidp, kdp):
 
     Parameters
     ----------
-    phidp : :class:`numpy:numpy.ndarray`
-        array of floats
-    kdp : :class:`numpy:numpy.ndarray`
-        array of floats
-
+    phidp : :class:`xarray.DataArray`
+        Differential Phase
+    kdp : :class:`xarray.DataArray`
+        Specific Differential Phase
     """
-    # unfold phidp
-    shape = phidp.shape
-    phidp = phidp.reshape((-1, shape[-1]))
-    kdp = kdp.reshape((-1, shape[-1]))
+    # numpy -> xarray
+    is_numpy = False
+    if not isinstance(phidp, xr.DataArray):
+        is_numpy = True
+        shape = phidp.shape
+        phidp = xr.DataArray(phidp, name='PHIDP')
+        dims = phidp.dims
+        phidp = phidp.to_dataset().rename_dims({dims[-1]: 'range'}).PHIDP
+        phidp = phidp.assign_coords(
+            {'range': (['range'], np.arange(shape[-1]))})
 
-    for beam in range(len(phidp)):
-        below_th3 = kdp[beam] < -20
-        try:
-            idx1 = np.where(below_th3)[0][2]
-            phidp[beam, idx1:] += 360
-        except Exception:
-            pass
+    if not isinstance(kdp, xr.DataArray):
+        is_numpy = True
+        shape = kdp.shape
+        kdp = xr.DataArray(kdp, name='KDP')
+        dims = kdp.dims
+        kdp = kdp.to_dataset().rename_dims({dims[-1]: 'range'}).KDP
+        kdp = kdp.assign_coords(
+            {'range': (['range'], np.arange(shape[-1]))})
 
-    return phidp.reshape(shape)
+    # find first location of
+    amax = xr.where(kdp < -20, 1, 0).argmax(dim='range')
+    phidp = phidp.assign_coords(
+        {'range_idx': (['range'], np.arange(phidp.range.size))})
+    phidp = xr.where(phidp.range_idx >= amax, phidp + 360, phidp)
+    #print(phidp)
+    #phidp = phidp.transpose(dims)
+
+    if is_numpy:
+        phidp = phidp.values
+
+    return phidp
 
 
 def _fill_sweep(dat, kind="nan_to_num", fill_value=0.):
@@ -206,14 +244,20 @@ def _fill_sweep(dat, kind="nan_to_num", fill_value=0.):
     return dat.reshape(shape)
 
 
-def kdp_from_phidp(phidp, winlen=7, dr=1., method=None):
+def kdp_from_phidp(phidp, winlen=7, dr=None, padding='constant',
+                   method='lanczos',
+                   pad_kwargs={},
+                   rolling_kwargs={'min_periods': 1, 'center': True}):
     """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
 
-    In normal operation the method uses convolution to estimate :math:`K_{DP}`
-    (the derivative of :math:`Phi_{DP}` with Low-noise Lanczos differentiators.
-    The results are very similar to the fallback moving window linear
-    regression (`method=slow`), but the former is *much* faster, depending on
-    the percentage of NaN values in the beam, though.
+    This functions uses xarray's rolling window implementation. Handling of NaN
+    can be set via `rolling_kwargs`.
+
+    In normal operation (`method='lanczos'`) the method uses
+    convolution to estimate :math:`K_{DP}` (the derivative of :math:`Phi_{DP}`
+    with Low-noise Lanczos differentiators. The results are very similar to the
+    fallback moving window linear regression (`method='polyfit'`), but the
+    former is *reasonable* faster.
 
     For further reading please see `Differentiation by integration using \
     orthogonal polynomials, a survey <https://arxiv.org/pdf/1102.5219>`_ \
@@ -221,113 +265,76 @@ def kdp_from_phidp(phidp, winlen=7, dr=1., method=None):
     <http://www.holoborodko.com/pavel/numerical-methods/numerical-derivative/\
 lanczos-low-noise-differentiators/>`_.
 
-    The fast method provides fast :math:`K_{DP}` retrieval but will return NaNs
-    in case at least one value in the moving window is NaN. The remaining gates
-    are treated by using local linear regression where possible.
-
-    Please note that the moving window size ``winlen`` is specified as the number of
-    range gates. Thus, this argument might need adjustment in case the
-    range resolution changes.
+    Please note that the moving window size ``winlen`` is specified as the
+    number of range gates. Thus, this argument might need adjustment in case
+    the range resolution changes.
     In the original publication (:cite:`Vulpiani2012`), the value ``winlen=7``
     was chosen for a range resolution of 1km.
 
-    Warning
-    -------
-    The function is designed for speed by allowing to process
-    multiple dimensions in one step. For this purpose, the RANGE dimension
-    needs to be the LAST dimension of the input array.
-
     Parameters
     ----------
-    phidp : :class:`numpy:numpy.ndarray`
-        multi-dimensional array, note that the range dimension must be the
-        last dimension of the input array.
+    phidp : :class:`xarray.DataArray`
+        Differential Phase
     winlen : int
         Width of the window (as number of range gates)
-    dr : float
-        gate length in km
+    padding : str
+        padding mode, see xarray.Dataarray.pad().
     method : str
-        If None uses fast convolution based differentiation, if 'slow' uses
-        linear regression.
-
-    Examples
-    --------
-
-    >>> import wradlib
-    >>> import numpy as np
-    >>> import matplotlib.pyplot as pl
-    >>> pl.interactive(True)
-    >>> kdp_true = np.sin(3 * np.arange(0, 10, 0.1))
-    >>> phidp_true = np.cumsum(kdp_true)
-    >>> phidp_raw = phidp_true + np.random.uniform(-1, 1, len(phidp_true))
-    >>> gaps = np.concatenate([range(10, 20), range(30, 40), range(60, 80)])
-    >>> phidp_raw[gaps] = np.nan
-    >>> kdp_re = wradlib.dp.kdp_from_phidp(phidp_raw)
-    >>> line1 = pl.plot(np.ma.masked_invalid(phidp_true), "b--", label="phidp_true")  # noqa
-    >>> line2 = pl.plot(np.ma.masked_invalid(phidp_raw), "b-", label="phidp_raw")  # noqa
-    >>> line3 = pl.plot(kdp_true, "g-", label="kdp_true")
-    >>> line4 = pl.plot(np.ma.masked_invalid(kdp_re), "r-", label="kdp_reconstructed")  # noqa
-    >>> lgnd = pl.legend(("phidp_true", "phidp_raw", "kdp_true", "kdp_reconstructed"))  # noqa
-    >>> pl.show()
+        method of the derivation calculation, `lanczos` or `polyfit`.
     """
     assert (winlen % 2) == 1, \
         "Window size N for function kdp_from_phidp must be an odd number."
 
-    shape = phidp.shape
-    phidp = phidp.reshape((-1, shape[-1]))
+    # numpy -> xarray
+    is_numpy = False
+    if not isinstance(phidp, xr.DataArray):
+        is_numpy = True
+        shape = phidp.shape
+        phidp = xr.DataArray(phidp, name='PHIDP')
+        dims = phidp.dims
+        phidp = phidp.to_dataset().rename_dims({dims[-1]: 'range'}).PHIDP
+        phidp = phidp.assign_coords({'range': (['range'], np.arange(shape[-1]) * dr * 1000.)})
+
+    # retrieve dr gatelength in km
+    dr = phidp.range.diff(dim='range').values[0] / 1000.
 
     # Make really sure winlen is an integer
     winlen = int(winlen)
 
-    if method == 'slow':
-        kdp = np.zeros(phidp.shape) * np.nan
+    # mode='mean' is nice, it pads with the mean of the pad-length at the edges
+    if method == 'lanczos':
+        # pad half window
+        pad = winlen // 2
+
+        pad_kwargs = {}
+        if padding in ["maximum", "mean", "median", "minimum"]:
+            pad_kwargs.update('stat_length',
+                              pad_kwargs.get('stat_length', pad))
+        phidp = phidp.pad(range=pad, mode=padding, **pad_kwargs)
+
+    kdp = phidp.rolling({'range': winlen}, **rolling_kwargs)
+    kdp = kdp.construct('window')
+
+    # calculate weights
+    if method == 'lanczos':
+        weight = lanczos_differentiator(winlen)
+        # actual convolution using dot-product
+        kdp = kdp.dot(weight)
+    elif method in ['polyfit', 'slow']:
+        kdp = kdp.polyfit(dim='window', deg=1)
+        kdp = kdp.sel(degree=1)
+        kdp = kdp.polyfit_coefficients
     else:
-        window = lanczos_differentiator(winlen)
-        kdp = ndimage.filters.convolve1d(phidp, window, axis=1)
+        raise ValueError(f"wradlib: Unknown method {method}")
 
-    # find remaining NaN values with valid neighbours
-    invalidkdp = np.isnan(kdp)
-    if not np.any(invalidkdp.ravel()):
-        # No NaN? Return KdP
-        return kdp.reshape(shape) / 2. / dr
+    if method == 'lanczos':
+        # remove padding
+        kdp = kdp.isel(range=slice(pad, -pad))
 
-    # Otherwise continue
-    x = np.arange(phidp.shape[-1])
-    valids = ~np.isnan(phidp)
-    kernel = np.ones(winlen, dtype="i4")
-    # and do the slow moving window linear regression
-    for beam in range(len(phidp)):
-        # number of valid neighbours around one gate
-        nvalid = np.convolve(valids[beam], kernel, "same") > winlen / 2
-        # find those gates which have invalid Kdp AND enough valid neighbours
-        nangates = np.where(invalidkdp[beam] & nvalid)[0]
-        # now iterate over those
-        for r in nangates:
-            ix = np.arange(max(0, r - int(winlen / 2)),
-                           min(r + int(winlen / 2) + 1, shape[-1]))
-            # check again (just to make sure...)
-            if np.sum(valids[beam, ix]) < winlen / 2:
-                # not enough valid values inside our window
-                continue
-            kdp[beam, r] = stats.linregress(x[ix][valids[beam, ix]],
-                                            phidp[beam,
-                                                  ix[valids[beam, ix]]])[0]
-        # take care of the start and end of the beam
-        #   start
-        ix = np.arange(0, winlen)
-        if np.sum(valids[beam, ix]) >= 2:
-            kdp[beam, 0:int(winlen / 2)] = stats.linregress(
-                x[ix][valids[beam, ix]],
-                phidp[beam, ix[valids[beam, ix]]])[0]
-        # end
-        ix = np.arange(shape[-1] - winlen, shape[-1])
-        if np.sum(valids[beam, ix]) >= 2:
-            kdp[beam, -int(winlen / 2):] = stats.linregress(
-                x[ix][valids[beam, ix]],
-                phidp[beam, ix[valids[beam, ix]]])[0]
+    if is_numpy:
+        kdp = kdp.values
 
-    # accounting for forward/backward propagation AND gate length
-    return kdp.reshape(shape) / 2. / dr
+    return kdp / 2. / dr
 
 
 def lanczos_differentiator(winlen):
@@ -335,7 +342,8 @@ def lanczos_differentiator(winlen):
     denom = m * (m + 1.) * (2 * m + 1.)
     k = np.arange(1, m + 1)
     f = 3 * k / denom
-    return np.r_[f[::-1], [0], -f]
+    out = xr.DataArray(np.r_[f[::-1], [0], -f] * -1, dims=['window'])
+    return out
 
 
 def unfold_phi(phidp, rho, width=5, copy=False):
@@ -456,49 +464,47 @@ def unfold_phi_naive(phidp, rho, width=5, copy=False):
     return phidp
 
 
-def linear_despeckle(data, ndespeckle=3, copy=False):
+def linear_despeckle(data, ndespeckle=3):
     """Remove floating pixels in between NaNs in a multi-dimensional array.
-
-    Warning
-    -------
-    This function changes the original input array if argument copy is set to
-    default (False).
 
     Parameters
     ----------
-    data : :class:`numpy:numpy.ndarray`
+    data : :class:`xarray.DataArray`
         Note that the range dimension must be the last dimension of the
         input array.
     ndespeckle : int
         (must be either 3 or 5, 3 by default),
         Width of the window in which we check for speckle
-    copy : bool
-        If True, the input array will remain unchanged.
-
     """
     assert ndespeckle in (3, 5), \
-        "Window size ndespeckle for function linear_despeckle must be 3 or 5."
-    if copy:
-        data = data.copy()
-    axis = data.ndim - 1
-    arr = np.ones(data.shape, dtype="i4")
-    arr[np.isnan(data)] = 0
-    arr_plus1 = np.roll(arr, shift=1, axis=axis)
-    arr_minus1 = np.roll(arr, shift=-1, axis=axis)
-    if ndespeckle == 3:
-        # for a window of size 3
-        test = arr + arr_plus1 + arr_minus1
-        data[np.logical_and(np.logical_not(np.isnan(data)), test < 2)] = np.nan
-    else:
-        # for a window of size 5
-        arr_plus2 = np.roll(arr, shift=2, axis=axis)
-        arr_minus2 = np.roll(arr, shift=-2, axis=axis)
-        test = arr + arr_plus1 + arr_minus1 + arr_plus2 + arr_minus2
-        data[np.logical_and(np.logical_not(np.isnan(data)), test < 3)] = np.nan
-    # remove isolated pixels at the first gate
-    secondgate = np.squeeze(np.take(data, range(1, 2), data.ndim - 1))
-    data[..., 0][np.isnan(secondgate)] = np.nan
-    return data
+        "Window size ndespeckle for function xr_linear_despeckle must be 3 or 5."
+
+    # numpy -> xarray
+    is_numpy = False
+    if not isinstance(data, xr.DataArray):
+        is_numpy = True
+        shape = data.shape
+        data = xr.DataArray(data, name='DATA')
+        dims = data.dims
+        data = data.to_dataset().rename_dims({dims[-1]: 'range'}).DATA
+
+    pad = ndespeckle // 2
+    # mode='constant' pads with nan which is needed here
+    arr = data.pad(range=pad, mode='constant')
+
+    arr = arr.rolling({'range': ndespeckle}, min_periods=1, center=True)
+    arr = arr.count()
+
+    # remove padding
+    arr = arr.isel(range=slice(pad, -pad))
+
+    # return masked data
+    out = data.where(arr > 1)
+
+    if is_numpy:
+        out = out.values
+
+    return out
 
 
 def texture(data):
@@ -520,12 +526,21 @@ def texture(data):
         array of textures with the same shape as data
 
     """
-    # one-element wrap-around padding for last two axes
-    x = np.pad(data, [(0,)] * (data.ndim - 2) + [(1,), (1,)], mode='wrap')
+    # numpy -> xarray
+    is_numpy = False
+    if not isinstance(data, xr.DataArray):
+        data = xr.DataArray(data)
+        is_numpy = True
 
-    # set first and last range elements to NaN
-    x[..., 0] = np.nan
-    x[..., -1] = np.nan
+    # remove indices/coords
+    plain = data.reset_index(list(data.indexes), drop=True)
+    plain = plain.reset_coords(drop=True)
+
+    # one-element wrap-around padding for last two axes
+    padding = [(0,)] * (data.ndim - 2) + [(1,), (1,)]
+    pads = {dim: pad[0] for dim, pad in zip(data.dims[:-1], padding[:-1])}
+    x = plain.pad(pads, mode='wrap')
+    x = x.pad({data.dims[-1]: padding[-1][0]}, mode='constant')
 
     # get neighbours using views into padded array
     x1 = x[..., :-2, 1:-1]  # center:2
@@ -537,17 +552,21 @@ def texture(data):
     x7 = x[..., 2:, 2:]  # 9
     x8 = x[..., 2:, :-2]  # 7
 
-    # stack arrays
-    xa = np.array([x1, x2, x3, x4, x5, x6, x7, x8])
+    # concat along new dimension
+    xb = xr.concat([x1, x2, x3, x4, x5, x6, x7, x8], dim='texture')
 
-    # get count of valid neighbouring pixels
-    xa_valid_count = np.count_nonzero(~np.isnan(xa), axis=0)
+    # root mean squared calculation
+    cnt = xb.count(dim='texture')
+    sd = (xb - plain) ** 2
+    mean = sd.sum(dim='texture') / cnt
+    rmsd = np.sqrt(mean)
+    rmsd = rmsd.where(~np.isnan(data))
 
-    # root mean of squared differences
-    rmsd = np.sqrt(np.nansum((xa - data) ** 2, axis=0) / xa_valid_count)
-
-    # reinforce that NaN values should have NaN textures
-    rmsd[np.isnan(data)] = np.nan
+    if is_numpy:
+        rmsd = rmsd.values
+    else:
+        # return with indexes and coords
+        rmsd = data.copy(data=rmsd.data)
 
     return rmsd
 
@@ -573,8 +592,12 @@ def depolarization(zdr, rho):
         array of depolarization ratios with the same shape as input data,
         numpy broadcasting rules apply
     """
-    zdr = trafo.idecibel(np.asanyarray(zdr))
-    m = 2 * np.asanyarray(rho) * zdr ** 0.5
+    if not isinstance(zdr, xr.DataArray):
+        zdr = np.asanyarray(zdr)
+    if not isinstance(rho, xr.DataArray):
+        rho = np.asanyarray(rho)
+    zdr = trafo.idecibel(zdr)
+    m = 2 * rho * zdr ** 0.5
 
     return trafo.decibel((1 + zdr - m) / (1 + zdr + m))
 
