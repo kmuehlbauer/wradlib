@@ -17,12 +17,13 @@ xarray DataArrays and Datasets
 
    {}
 """
-__all__ = ['DPMethods', 'ZRMethods']
+__all__ = ['DPMethods', 'ZRMethods', 'VisMethods']
 __doc__ = __doc__.format('\n   '.join(__all__))
 
+import re
 import xarray as xr
 
-from wradlib import dp, zr, xarray
+from wradlib import dp, vis, xarray, zr
 
 
 class XarrayMethods(object):
@@ -41,6 +42,11 @@ class DPMethods(XarrayMethods):
         super(DPMethods, self).__init__(xarray_obj, dp)
 
 
+class VisMethods(XarrayMethods):
+    def __init__(self, xarray_obj):
+        super(VisMethods, self).__init__(xarray_obj, vis)
+
+
 class ZRMethods(XarrayMethods):
     def __init__(self, xarray_obj):
         super(ZRMethods, self).__init__(xarray_obj, zr)
@@ -50,7 +56,7 @@ class ZRMethods(XarrayMethods):
 class WradlibDataArrayAccessor(object):
     """DataArray Accessor for wradlib module functions
     """
-    __slots__ = ['_obj', '_dp', '_zr']
+    __slots__ = ['_obj', '_dp', '_vis', '_zr']
 
     def __init__(self, xarray_obj):
         for slot in self.__slots__:
@@ -69,6 +75,12 @@ class WradlibDataArrayAccessor(object):
         if self._dp is None:
             self._dp = xarray.DPMethods(self._obj)
         return self._dp
+
+    @property
+    def vis(self):
+        if self._vis is None:
+            self._vis = xarray.VisMethods(self._obj)
+        return self._vis
 
     @property
     def zr(self):
