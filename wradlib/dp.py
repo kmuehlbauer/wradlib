@@ -198,11 +198,12 @@ def unfold_phi_vulpiani(phidp, kdp):
     # find first location of
     amax = xr.where(kdp < -20, 1, 0).argmax(dim='range')
     dims = phidp.dims
+
     phidp = phidp.assign_coords(
         {'range_idx': (['range'], np.arange(phidp.range.size))})
     phidp = xr.where(phidp.range_idx >= amax, phidp + 360, phidp)
     #print(phidp)
-    phidp = phidp.transpose(dims)
+    phidp = phidp.transpose(*dims)
 
     if is_numpy:
         phidp = phidp.values
