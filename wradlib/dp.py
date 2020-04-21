@@ -203,7 +203,8 @@ def unfold_phi_vulpiani(phidp, kdp):
         {'range_idx': (['range'], np.arange(phidp.range.size))})
     phidp = xr.where(phidp.range_idx >= amax, phidp + 360, phidp)
     #print(phidp)
-    phidp = phidp.transpose(*dims)
+    if phidp.dims != dims:
+        phidp = phidp.transpose(*dims)
 
     if is_numpy:
         phidp = phidp.values
