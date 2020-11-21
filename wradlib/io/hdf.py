@@ -57,6 +57,7 @@ def read_generic_hdf5(fname):
     fcontent = {}
 
     def filldict(x, y):
+        print(y)
         # create a new container
         tmp = {}
         # add attributes if present
@@ -71,6 +72,9 @@ def read_generic_hdf5(fname):
 
     with h5py.File(fname, "r") as f:
         f.visititems(filldict)
+        # add root attrs if available
+        if len(f.attrs) > 0:
+            fcontent["attrs"] = dict(f.attrs)
 
     return fcontent
 
@@ -118,6 +122,9 @@ def read_opera_hdf5(fname):
 
     with h5py.File(fname, "r") as f:
         f.visititems(filldict)
+        # add root attrs if available
+        if len(f.attrs) > 0:
+            fcontent["attrs"] = dict(f.attrs)
 
     return fcontent
 

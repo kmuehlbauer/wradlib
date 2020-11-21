@@ -61,9 +61,7 @@ def write_gamic_ray_header(grp, data):
 
 
 def write_group(grp, data):
-    print("###########################################################################")
     for k, v in data.items():
-        print(k, v)
         if k == "attrs":
             grp.attrs.update(v)
         elif k == "data":
@@ -80,10 +78,6 @@ def write_group(grp, data):
 
 def create_a1gate(i):
     return i + 20
-
-
-def create_time():
-    return xr.DataArray(1307700610.0, attrs=io.xarray.time_attrs)
 
 
 def create_startazT(i, nrays=361):
@@ -189,6 +183,37 @@ def create_root_where():
 
 def create_root_what():
     return {"version": "9"}
+
+
+def create_synthetic_odim_dataset(nrays=360):
+    data = {}
+    root_attrs = dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13"))
+
+    foo_data = create_data(nrays=nrays)
+
+    dataset = ["dataset1", "dataset2"]
+    datas = ["data1"]
+
+    data["where"] = {}
+    data["where"]["attrs"] = create_root_where()
+    data["what"] = {}
+    data["what"]["attrs"] = create_root_what()
+    for i, grp in enumerate(dataset):
+        sub = {}
+        sub["how"] = {}
+        sub["where"] = {}
+        sub["where"]["attrs"] = create_dset_where(i, nrays=nrays)
+        sub["what"] = {}
+        sub["what"]["attrs"] = create_dset_what()
+        for j, mom in enumerate(datas):
+            sub2 = {}
+            sub2["data"] = foo_data
+            sub2["what"] = {}
+            sub2["what"]["attrs"] = create_dbz_what()
+            sub[mom] = sub2
+        data[grp] = sub
+    data["attrs"] = root_attrs
+    return data
 
 
 def create_synthetic_odim_file(tmp_local, data):
