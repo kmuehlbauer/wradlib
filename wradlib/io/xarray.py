@@ -911,7 +911,7 @@ def _preprocess_moment(ds, mom, non_uniform_shape):
     quantity = mom.quantity
 
     # extract and translate attributes to cf
-    what = mom.what
+    what = mom._get_attributes("what") #what
     attrs["scale_factor"] = what["gain"]
     attrs["add_offset"] = what["offset"]
     attrs["_FillValue"] = what["nodata"]
@@ -1187,11 +1187,73 @@ def _open_mfmoments(
     return combined
 
 
+def _ncid(ncfile, ncpath):
+    """Returns handle for current path."""
+    # root-group can't be subset with netcdf4 and h5netcdf
+    if ncpath == "/":
+        if isinstance(ncfile, (nc.Dataset, h5netcdf.File)):
+            return ncfile
+    return ncfile[ncpath]
+
+
+def _get_attribute(ncid, attr, grp=None):
+    """Return single attribute extracted from `grp`"""
+    try:
+        if grp is not None:
+            ncid = ncid[grp]
+        if isinstance(ncid, (nc.Dataset, nc.Variable)):
+            return ncid.getncattr(attr)
+        else:
+            v = ncid.attrs[attr]
+            try:
+                v = v.item()
+            except (ValueError, AttributeError):
+                pass
+            try:
+                v = v.decode()
+            except (UnicodeDecodeError, AttributeError):
+                pass
+            return v
+    except (IndexError, KeyError):
+        return None
+
+
+def _get_attributes(ncid, grp=None):
+    """Return dict with attributes extracted from `grp`"""
+    try:
+        if grp is not None:
+            ncid = ncid[grp]
+        if isinstance(ncid, (nc.Dataset, nc.Variable)):
+            attrs = {k: ncid.getncattr(k) for k in ncid.ncattrs()}
+            return attrs
+        else:
+            attrs = {**ncid.attrs}
+            attrs = _decode_strings(attrs)
+            return attrs
+    except (IndexError, KeyError):
+        return None
+
+
+def _decode_strings(attrs):
+    """Decode strings if possible."""
+    for k, v in attrs.items():
+        try:
+            v = v.item()
+        except (ValueError, AttributeError):
+            pass
+        try:
+            v = v.decode()
+        except (UnicodeDecodeError, AttributeError):
+            pass
+        attrs[k] = v
+    return attrs
+
+
 class XRadBase(collections.abc.MutableSequence):
     """Base Class for all XRad-classes."""
 
-    def __init__(self, **kwargs):
-        super(XRadBase, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__()
         self._seq = []
 
     def __getitem__(self, index):
@@ -1228,12 +1290,14 @@ class XRadBase(collections.abc.MutableSequence):
 class XRadFileAccessMixin:
     """Mixin Class for netcdf/hdf5 file access"""
 
-    def __init__(self):
-        super(XRadFileAccessMixin, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._ncfile = None
         self._ncpath = None
         self._parent = None
+        self._ncid = None
         self._attrs = None
+        self._filename = None
 
     @property
     def ncpath(self):
@@ -1243,11 +1307,7 @@ class XRadFileAccessMixin:
     @property
     def ncid(self):
         """Returns handle for current path."""
-        # root-group can't be subset with netcdf4 and h5netcdf
-        if self._ncpath == "/":
-            if isinstance(self.ncfile, (nc.Dataset, h5netcdf.File)):
-                return self._ncfile
-        return self._ncfile[self.ncpath]
+        return _ncid(self._ncfile, self._ncpath)
 
     @property
     def ncfile(self):
@@ -1258,7 +1318,7 @@ class XRadFileAccessMixin:
     def attrs(self):
         """Return group attributes."""
         if self._attrs is None:
-            if isinstance(self.ncfile, nc.Dataset):
+            if isinstance(self._ncfile, nc.Dataset):
                 self._attrs = {k: self.ncid.getncattr(k) for k in
                                self.ncid.ncattrs()}
             else:
@@ -1268,10 +1328,11 @@ class XRadFileAccessMixin:
     @property
     def filename(self):
         """Return filename group belongs to."""
-        if isinstance(self.ncfile, nc.Dataset):
-            return self.ncfile.filepath()
-        else:
-            return self.ncfile.filename
+        try:
+            self._filename = self._ncfile.filepath()
+        except AttributeError:
+            self._filename = self._ncfile.filename
+        return self._filename
 
     @property
     def groups(self):
@@ -1284,7 +1345,7 @@ class XRadFileAccessMixin:
     @property
     def engine(self):
         """Return engine used for accessing data"""
-        if isinstance(self.ncfile, nc.Dataset):
+        if isinstance(self._ncfile, nc.Dataset):
             return "netcdf4"
         else:
             return "h5netcdf"
@@ -1294,41 +1355,17 @@ class XRadFileAccessMixin:
         """Return parent object."""
         return self._parent
 
-    def _get_attributes(self, grp, ncid=None):
+    def _get_attributes(self, grp=None, ncid=None):
         """Return dict with attributes extracted from `grp`"""
         if ncid is None:
             ncid = self.ncid
-        try:
-            if isinstance(self.ncfile, nc.Dataset):
-                attrs = {k: ncid[grp].getncattr(k) for k in ncid[grp].ncattrs()}
-                return attrs
-            else:
-                attrs = {**ncid[grp].attrs}
-                attrs = self._decode(attrs)
-                return attrs
-        except (IndexError, KeyError):
-            return None
+        return _get_attributes(ncid, grp=grp)
 
     def _get_attribute(self, grp, attr=None, ncid=None):
         """Return single attribute extracted from `grp`"""
         if ncid is None:
             ncid = self.ncid
-        try:
-            if isinstance(self.ncfile, nc.Dataset):
-                return ncid[grp].getncattr(attr)
-            else:
-                v = ncid[grp].attrs[attr]
-                try:
-                    v = v.item()
-                except (ValueError, AttributeError):
-                    pass
-                try:
-                    v = v.decode()
-                except (UnicodeDecodeError, AttributeError):
-                    pass
-                return v
-        except (IndexError, KeyError):
-            return None
+        return _get_attribute(ncid, attr, grp=grp)
 
     def _decode(self, attrs):
         """Decode strings if possible."""
@@ -1348,36 +1385,13 @@ class XRadFileAccessMixin:
 class OdimH5GroupAttributeMixin:
     """Mixin Class for Odim Group Attribute Retrieval"""
 
-    __slots__ = ["_attrs", "_ncfile", "_ncpath", "_parent", "_how", "_what", "_where"]
+    __slots__ = ["_how", "_what", "_where"]
 
-    def __init__(self, ncfile=None, ncpath=None, parent=None):
-        super(OdimH5GroupAttributeMixin, self).__init__()
-        self._ncfile = ncfile
-        self._ncpath = ncpath
-        self._parent = parent
-        self._attrs = None
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
         self._how = None
         self._what = None
         self._where = None
-
-    @property
-    def ncpath(self):
-        """Returns path string inside HDF5 File."""
-        return self._ncpath
-
-    @property
-    def ncid(self):
-        """Returns handle for current path."""
-        # root-group can't be subset with netcdf4 and h5netcdf
-        if self._ncpath == "/":
-            if isinstance(self.ncfile, (nc.Dataset, h5netcdf.File)):
-                return self._ncfile
-        return self._ncfile[self.ncpath]
-
-    @property
-    def ncfile(self):
-        """Returns file handle."""
-        return self._ncfile
 
     @property
     def how(self):
@@ -1400,236 +1414,34 @@ class OdimH5GroupAttributeMixin:
             self._where = self._get_attributes("where")
         return self._where
 
-    @property
-    def attrs(self):
-        """Return group attributes."""
-        if self._attrs is None:
-            if isinstance(self.ncfile, nc.Dataset):
-                self._attrs = {k: self.ncid.getncattr(k) for k in self.ncid.ncattrs()}
-            else:
-                self._attrs = self._decode({**self.ncid.attrs})
-        return self._attrs
 
-    @property
-    def filename(self):
-        """Return filename group belongs to."""
-        if isinstance(self.ncfile, nc.Dataset):
-            return self.ncfile.filepath()
-        else:
-            return self.ncfile.filename
-
-    @property
-    def groups(self):
-        """Return list of available groups."""
-        if isinstance(self.ncfile, nc.Dataset):
-            return list(self.ncid.groups)
-        else:
-            return list(self.ncid.keys())
-
-    @property
-    def engine(self):
-        """Return engine used for accessing data"""
-        if isinstance(self.ncfile, nc.Dataset):
-            return "netcdf4"
-        else:
-            return "h5netcdf"
-
-    @property
-    def parent(self):
-        """Return parent object."""
-        return self._parent
-
-    def _get_attributes(self, grp, ncid=None):
-        """Return dict with attributes extracted from `grp`"""
-        if ncid is None:
-            ncid = self.ncid
-        try:
-            if isinstance(self.ncfile, nc.Dataset):
-                attrs = {k: ncid[grp].getncattr(k) for k in ncid[grp].ncattrs()}
-                return attrs
-            else:
-                attrs = {**ncid[grp].attrs}
-                attrs = self._decode(attrs)
-                return attrs
-        except (IndexError, KeyError):
-            return None
-
-    def _get_attribute(self, grp, attr=None, ncid=None):
-        """Return single attribute extracted from `grp`"""
-        if ncid is None:
-            ncid = self.ncid
-        try:
-            if isinstance(self.ncfile, nc.Dataset):
-                return ncid[grp].getncattr(attr)
-            else:
-                v = ncid[grp].attrs[attr]
-                try:
-                    v = v.item()
-                except (ValueError, AttributeError):
-                    pass
-                try:
-                    v = v.decode()
-                except (UnicodeDecodeError, AttributeError):
-                    pass
-                return v
-        except (IndexError, KeyError):
-            return None
-
-    def _decode(self, attrs):
-        """Decode strings if possible."""
-        for k, v in attrs.items():
-            try:
-                v = v.item()
-            except (ValueError, AttributeError):
-                pass
-            try:
-                v = v.decode()
-            except (UnicodeDecodeError, AttributeError):
-                pass
-            attrs[k] = v
-        return attrs
-
-
-class OdimH5SweepMetaDataMixin:
-    """Mixin Class for Odim MetaData."""
-
-    def __init__(self):
-        super(OdimH5SweepMetaDataMixin, self).__init__()
-        self._a1gate = None
-        self._angle_resolution = None
-        self._azimuth = None
-        self._elevation = None
-        self._fixed_angle = None
-        self._nrays = None
-        self._nbins = None
-        self._time = None
-        self._endtime = None
-        self._rtime = None
-        self._rng = None
-
-    @property
-    def a1gate(self):
-        """Return and cache a1gate, azimuth of first measured gate"""
-        if self._a1gate is None:
-            self._a1gate = self._get_a1gate()
-        return self._a1gate
-
-    @property
-    def angle_resolution(self):
-        """Return and cache angular resolution in degree."""
-        if self._angle_resolution is None:
-            self._angle_resolution = self._get_angle_resolution()
-        return self._angle_resolution
-
-    @property
-    def azimuth(self):
-        """Return and cache azimuth xr.DataArray."""
-        if self._azimuth is None:
-            self._azimuth = self._get_azimuth()
-        return self._azimuth
-
-    @property
-    def elevation(self):
-        """Return and cache elevation xr.DataArray."""
-        if self._elevation is None:
-            self._elevation = self._get_elevation()
-        return self._elevation
-
-    @property
-    def fixed_angle(self):
-        """Return and cache elevation angle in degree."""
-        if self._fixed_angle is None:
-            self._fixed_angle = self._get_fixed_angle()
-        return self._fixed_angle
-
-    @property
-    def nrays(self):
-        """Return and cache number of rays."""
-        if self._nrays is None:
-            self._nrays = self._get_nrays()
-        return self._nrays
-
-    @property
-    def nbins(self):
-        """Return and cache number of bins."""
-        if self._nbins is None:
-            self._nbins = self._get_nbins()
-        return self._nbins
-
-    @property
-    def rng(self):
-        """Return and cache range xr.DataArray."""
-        if self._rng is None:
-            self._rng = self._get_range()
-        return self._rng
-
-    @property
-    def ray_times(self):
-        """Return and cache ray_times xr.DataArray."""
-        if self._rtime is None:
-            da = self._get_ray_times()
-            # decode, if necessary
-            if self.decode_times:
-                da = self._decode_cf(da)
-            self._rtime = da
-        return self._rtime
-
-    @property
-    def time(self):
-        """Return and cache time xr.DataArray."""
-        if self._time is None:
-            da = self._get_time()
-            # decode, if necessary
-            if self.decode_times:
-                da = self._decode_cf(da)
-            self._time = da
-        return self._time
-
-    @property
-    def starttime(self):
-        """Return sweep starttime xr.DataArray."""
-        return self._time
-
-    @property
-    def endtime(self):
-        """Return sweep endtime xr.DataArray."""
-        if self._endtime is None:
-            da = self._get_time(point="end")
-            # decode, if necessary
-            if self.decode_times:
-                da = self._decode_cf(da)
-            self._endtime = da
-        return self._endtime
-
-
-class XRadMoment(OdimH5GroupAttributeMixin, XRadFileAccessMixin):
+class XRadMoment:
     """Class for holding one radar moment
 
     Parameters
     ----------
-    ncfile : {netCDF4.Dataset, h5py.File or h5netcdf.File object}
-        File handle of file containing radar sweep
-    ncpath : str
-        path to moment group (datasetX)
     parent : XRadSweep
         parent sweep object
+    quantity : str
+        moment/quantity name
     """
 
-    def __init__(self, ncfile, ncpath, parent):
-        super(XRadMoment, self).__init__(ncfile, ncpath, parent)
-        self._quantity = None
+    def __init__(self, parent=None, quantity=None):
+        super().__init__()
+        self._parent = parent
+        self._quantity = quantity
 
     def __repr__(self):
         summary = ["<wradlib.{}>".format(type(self).__name__)]
 
         dims = "Dimension(s):"
-        dims_summary = [f"{self.parent._dim0[0]}: {self.parent.nrays}"]
-        dims_summary.append(f"{self.parent._dim1}: {self.parent.nbins}")
+        dims_summary = [f"{self._parent._dim0[0]}: {self._parent.nrays}"]
+        dims_summary.append(f"{self._parent._dim1}: {self._parent.nbins}")
         dims_summary = ", ".join(dims_summary)
         summary.append("{} ({})".format(dims, dims_summary))
 
         angle = "Elevation(s):"
-        angle_summary = f"{self.parent.fixed_angle:.1f}"
+        angle_summary = f"{self._parent.fixed_angle:.1f}"
         summary.append("{} ({})".format(angle, angle_summary))
 
         moms = "Moment:"
@@ -1641,40 +1453,100 @@ class XRadMoment(OdimH5GroupAttributeMixin, XRadFileAccessMixin):
     @property
     def data(self):
         """Return moment xr.DataArray."""
-        return self.parent.data[self.quantity]
+        return self._parent.data[self.quantity]
 
     @property
     def time(self):
         """Return sweep time."""
-        return self.parent.time
+        return self._parent.time
+
+    @property
+    def parent(self):
+        return self._parent
+
+    @property
+    def quantity(self):
+        return NotImplementedError
+
+
+class XRadMomentOdim(XRadFileAccessMixin, XRadMoment):
+    """Class for holding one Odim radar moment
+    """
+    def __init__(self, ncfile, ncpath, parent):
+        super().__init__(parent)
+        self._ncfile = ncfile
+        self._ncpath = ncpath
+        self._parent = parent
 
     @property
     def quantity(self):
         """Return `quantity` aka moment name"""
         if self._quantity is None:
-            if isinstance(self.parent, XRadSweepOdim):
-                self._quantity = self.what["quantity"]
-            if isinstance(self.parent, XRadSweepCfRadial):
-                self._quantity = self.ncpath
-            else:
-                self._quantity = GAMIC_NAMES[self.attrs["moment"].lower()]
+            self._quantity = self._get_attribute("what", attr="quantity")
         return self._quantity
 
 
-class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAccessMixin, XRadBase):
+class XRadMomentGamic(XRadFileAccessMixin, XRadMoment):
+    """Class for holding one Gamic radar moment
+    """
+    def __init__(self, ncfile, ncpath, parent):
+        super().__init__(parent)
+        self._ncfile = ncfile
+        self._ncpath = ncpath
+        self._parent = parent
+
+    @property
+    def quantity(self):
+        """Return `quantity` aka moment name"""
+        if self._quantity is None:
+            self._quantity = GAMIC_NAMES[self.attrs["moment"].lower()]
+        return self._quantity
+
+
+class XRadMomentCfRadial(XRadMoment):
+    """Class for holding one CfRadial radar moment
+    """
+    def __init__(self, parent, quantity):
+        super().__init__(parent)
+        self._parent = parent
+        self._quantity = quantity
+
+    @property
+    def quantity(self):
+        """Return `quantity` aka moment name"""
+        return self._quantity
+
+
+class XRadSweep(XRadBase):
     """Class for holding one radar sweep
 
-    Parameters
-    ----------
-
-    ncfile : {netCDF4.Dataset, h5py.File or h5netcdf.File object}
-        File handle of file containing radar sweep
-    ncpath : str
-        path to sweep group
+    Keyword Arguments
+    -----------------
+    chunks : dict
+        chunksizes, defaults to None
+    parallel : bool
+        use dask
+    mask_and_scale : bool
+        mask and scale
+    decode_coords : bool
+    decode_times : bool
+    keep_elevation : bool
+    keep_azimuth : bool
     """
-
-    def __init__(self, ncfile, ncpath, parent=None, **kwargs):
-        super(XRadSweep, self).__init__(ncfile, ncpath, parent)
+    def __init__(self, parent, *args, **kwargs):
+        super().__init__()
+        self._a1gate = None
+        self._angle_resolution = None
+        self._azimuth = None
+        self._elevation = None
+        self._fixed_angle = None
+        self._nrays = None
+        self._nbins = None
+        self._time = None
+        self._endtime = None
+        self._rtime = None
+        self._rng = None
+        self._parent = parent
         self._dask_kwargs = {
             "chunks": kwargs.get("chunks", None),
             "parallel": kwargs.get("parallel", False),
@@ -1690,10 +1562,8 @@ class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAcc
         }
         self._data = None
         self._need_time_recalc = False
-        self._seq.extend(self._get_moments())
         self._dim0 = ("azimuth", "elevation")
         self._dim1 = "range"
-        self.fixed_angle
 
     def __repr__(self):
         summary = ["<wradlib.{}>".format(type(self).__name__)]
@@ -1715,11 +1585,144 @@ class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAcc
 
         return "\n".join(summary)
 
-    def __del__(self):
-        if self._data is not None:
-            self._data.close()
-            self._data = None
-        self._ncfile = None
+    @property
+    def a1gate(self):
+        """Return and cache a1gate, azimuth of first measured gate"""
+        if self._a1gate is None:
+            self._a1gate = self._get_a1gate()
+        return self._a1gate
+
+    def _get_a1gate(self):
+        return NotImplementedError
+
+    @property
+    def angle_resolution(self):
+        """Return and cache angular resolution in degree."""
+        if self._angle_resolution is None:
+            self._angle_resolution = self._get_angle_resolution()
+        return self._angle_resolution
+
+    def _get_angle_resolution(self):
+        return NotImplementedError
+
+    @property
+    def azimuth(self):
+        """Return and cache azimuth xr.DataArray."""
+        if self._azimuth is None:
+            self._azimuth = self._get_azimuth()
+        return self._azimuth
+
+    def _get_azimuth(self):
+        return NotImplementedError
+
+    @property
+    def elevation(self):
+        """Return and cache elevation xr.DataArray."""
+        if self._elevation is None:
+            self._elevation = self._get_elevation()
+        return self._elevation
+
+    def _get_elevation(self):
+        return NotImplementedError
+
+    @property
+    def fixed_angle(self):
+        """Return and cache elevation angle in degree."""
+        if self._fixed_angle is None:
+            self._fixed_angle = self._get_fixed_angle()
+        return self._fixed_angle
+
+    def _get_fixed_angle(self):
+        return NotImplementedError
+
+    @property
+    def nrays(self):
+        """Return and cache number of rays."""
+        if self._nrays is None:
+            self._nrays = self._get_nrays()
+        return self._nrays
+
+    def _get_nrays(self):
+        return NotImplementedError
+
+    @property
+    def nbins(self):
+        """Return and cache number of bins."""
+        if self._nbins is None:
+            self._nbins = self._get_nbins()
+        return self._nbins
+
+    def _get_nbins(self):
+        return NotImplementedError
+
+    @property
+    def rng(self):
+        """Return and cache range xr.DataArray."""
+        if self._rng is None:
+            self._rng = self._get_range()
+        return self._rng
+
+    def _get_range(self):
+        return NotImplementedError
+
+    @property
+    def ray_times(self):
+        """Return and cache ray_times xr.DataArray."""
+        if self._rtime is None:
+            da = self._get_ray_times()
+            # decode, if necessary
+            if self.decode_times:
+                da = self._decode_cf(da)
+            self._rtime = da
+        return self._rtime
+
+    def _get_ray_times(self):
+        return NotImplementedError
+
+    @property
+    def time(self):
+        """Return and cache time xr.DataArray."""
+        if self._time is None:
+            da = self._get_time()
+            # decode, if necessary
+            if self.decode_times:
+                da = self._decode_cf(da)
+            self._time = da
+        return self._time
+
+    def _get_time(self):
+        return NotImplementedError
+
+    @property
+    def starttime(self):
+        """Return sweep starttime xr.DataArray."""
+        return self._time
+
+    @property
+    def endtime(self):
+        """Return sweep endtime xr.DataArray."""
+        if self._endtime is None:
+            da = self._get_time(point="end")
+            # decode, if necessary
+            if self.decode_times:
+                da = self._decode_cf(da)
+            self._endtime = da
+        return self._endtime
+
+    @property
+    def coords(self):
+        """Returns xr.Dataset containing coordinates."""
+        # sort coords by azimuth, only necessary for gamic flavour
+        # for odim is already sorted
+        return self._get_coords().sortby(self._dim0[0])
+
+    # def _get_coords(self):
+    #     return NotImplementedError
+
+    @property
+    def moments(self):
+        """Return list of moments."""
+        return [f"{k.quantity}" for k in self]
 
     def _decode_cf(self, obj):
         if isinstance(obj, xr.DataArray):
@@ -1740,26 +1743,9 @@ class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAcc
         )
         return ds
 
-    def _get_moments(self):
-        mdesc = self._mdesc
-        moments = [k for k in self.groups if mdesc in k]
-        moments_idx = np.argsort([int(s[len(mdesc) :]) for s in moments])
-        moments_names = np.array(moments)[moments_idx].tolist()
-        moments = [
-            XRadMoment(
-                ncfile=self.ncfile, ncpath="/".join([self.ncpath, mom]), parent=self
-            )
-            for mom in moments_names
-        ]
-        return moments
-
     def reset_data(self):
         """Reset .data xr.Dataset"""
         self._data = None
-
-    @property
-    def _mdesc(self):
-        return self._get_mdesc()
 
     @property
     def chunks(self):
@@ -1785,6 +1771,57 @@ class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAcc
     def decode_times(self):
         """Return `decode_times` setting."""
         return self._cf_kwargs.get("decode_times")
+
+    @property
+    def data(self):
+        """Return and cache moments as combined xr.Dataset"""
+        return NotImplementedError
+
+
+class XRadSweepH5(XRadFileAccessMixin, XRadSweep):
+    """Class for holding one HDF5 based radar sweep
+
+    Parameters
+    ----------
+    ncfile : {netCDF4.Dataset, h5py.File or h5netcdf.File object}
+        File handle of file containing radar sweep
+    ncpath : str
+        path to sweep group
+    parent : XRadTimeSeries
+        parent timeseries object
+    """
+
+    def __init__(self, ncfile, ncpath, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self._ncfile = ncfile
+        self._ncpath = ncpath
+        self._ncid = None
+
+    def __del__(self):
+        if self._data is not None:
+            self._data.close()
+            self._data = None
+        self._ncfile = None
+
+    def _get_moments(self):
+        mdesc = self._mdesc
+        moments = [k for k in self.groups if mdesc in k]
+        moments_idx = np.argsort([int(s[len(mdesc) :]) for s in moments])
+        moments_names = np.array(moments)[moments_idx].tolist()
+        if isinstance(self, XRadSweepOdim):
+            momclass = XRadMomentOdim
+        else:
+            momclass = XRadMomentGamic
+        moments = [
+            momclass(self.ncfile, "/".join([self.ncpath, mom]), self,
+                           )
+            for mom in moments_names
+        ]
+        return moments
+
+    @property
+    def _mdesc(self):
+        return self._get_mdesc()
 
     @property
     def data(self):
@@ -1819,33 +1856,27 @@ class XRadSweep(OdimH5GroupAttributeMixin, OdimH5SweepMetaDataMixin, XRadFileAcc
 
         return self._data
 
-    @property
-    def coords(self):
-        """Returns xr.Dataset containing coordinates."""
-        # sort coords by azimuth, only necessary for gamic flavour
-        # for odim is already sorted
-        return self._get_coords().sortby(self._dim0[0])
 
-    @property
-    def moments(self):
-        """Return list of moments."""
-        return [f"{k.quantity}" for k in self]
-
-
-class XRadSweepOdim(XRadSweep):
+class XRadSweepOdim(OdimH5GroupAttributeMixin, XRadSweepH5):
     """Class for holding one radar sweep
 
     Parameters
     ----------
-
     ncfile : {netCDF4.Dataset, h5py.File or h5netcdf.File object}
         File handle of file containing radar sweep
     ncpath : str
         path to sweep group
+    parent : XRadTimeSeries
+        parent timeseries object
     """
 
-    def __init__(self, ncfile, ncpath, parent=None, **kwargs):
-        super(XRadSweepOdim, self).__init__(ncfile, ncpath, parent, **kwargs)
+    def __init__(self, ncfile, ncpath, parent, **kwargs):
+        super().__init__(ncfile, ncpath, parent, **kwargs)
+        self._ncfile = ncfile
+        self._ncpath = ncpath
+        self._parent = parent
+        self.fixed_angle
+        self._seq.extend(self._get_moments())
 
     def _get_a1gate(self):
         return self.where["a1gate"]
@@ -2020,8 +2051,8 @@ class XRadSweepOdim(XRadSweep):
         return start
 
 
-class XRadSweepGamic(XRadSweep):
-    """Class for holding one radar sweep
+class XRadSweepGamic(OdimH5GroupAttributeMixin, XRadSweepH5):
+    """Class for holding one Gamic radar sweep
 
     Parameters
     ----------
@@ -2029,11 +2060,15 @@ class XRadSweepGamic(XRadSweep):
         File handle of file containing radar sweep
     ncpath : str
         path to sweep group
+    parent : XRadTimeSeries
+        parent timeseries object
     """
 
     def __init__(self, ncfile, ncpath, parent=None, **kwargs):
-        super(XRadSweepGamic, self).__init__(ncfile, ncpath, parent, **kwargs)
+        super().__init__(ncfile, ncpath, parent, **kwargs)
         self._ray_header = None
+        self.fixed_angle
+        self._seq.extend(self._get_moments())
 
     @property
     def ray_header(self):
@@ -2217,205 +2252,74 @@ class XRadSweepGamic(XRadSweep):
         return start
 
 
-class XRadSweepCfRadial(XRadFileAccessMixin, XRadBase):
+class XRadSweepCfradial1(XRadFileAccessMixin, XRadSweep):
+    """Class for holding one CfRadial1 radar sweep
 
+    Parameters
+    ----------
+    ncfile : {netCDF4.Dataset, h5py.File or h5netcdf.File object}
+        File handle of file containing radar sweep
+    ncpath : str
+        path to sweep group
+    parent : XRadTimeSeries
+        parent timeseries object
+    """
     def __init__(self, ncfile, ncpath, idx=0, parent=None, **kwargs):
-        super(XRadSweepCfRadial, self).__init__()
+        super().__init__(parent, **kwargs)
         self._ncfile = ncfile
         self._ncpath = ncpath
         self._parent = parent
-        self._attrs = None
-        self._how = None
-        self._what = None
-        self._where = None
 
-        self._nrays = None
-        self._nbins = None
+        self._idx = idx
 
-
-        self._idx = idx#kwargs.get("idx", 0)
-
-        self._dask_kwargs = {
-            "chunks": kwargs.get("chunks", None),
-            "parallel": kwargs.get("parallel", False),
-        }
-        self._cf_kwargs = {
-            "mask_and_scale": kwargs.get("mask_and_scale", True),
-            "decode_coords": kwargs.get("decode_coords", True),
-            "decode_times": kwargs.get("decode_times", True),
-        }
-        self._misc_kwargs = {
-            "keep_elevation": kwargs.get("keep_elevation", False),
-            "keep_azimuth": kwargs.get("keep_azimuth", False),
-        }
-        self._data = None
-        self._need_time_recalc = False
-        self._seq.extend(self._get_moments())
-        self._dim0 = ("azimuth", "elevation")
-        self._dim1 = "range"
-        self._fixed_angle = None
         self._fast_time = None
-        self._rtime = None
-        #self.fixed_angle
-
-    def __repr__(self):
-        summary = ["<wradlib.{}>".format(type(self).__name__)]
-
-        dims = "Dimension(s):"
-        dims_summary = [f"{self._dim0[0]}: {self.nrays}"]
-        dims_summary.append(f"{self._dim1}: {self.nbins}")
-        dims_summary = ", ".join(dims_summary)
-        summary.append("{} ({})".format(dims, dims_summary))
-
-        angle = f"{self._dim0[1].capitalize()}(s):"
-        angle_summary = f"{self.fixed_angle:0.1f}"
-        summary.append("{} ({})".format(angle, angle_summary))
-
-        moms = "Moment(s):"
-        moms_summary = self.moments
-        moms_summary = ", ".join(moms_summary)
-        summary.append("{} ({})".format(moms, moms_summary))
-
-        return "\n".join(summary)
-
-    def _decode_cf(self, obj):
-        if isinstance(obj, xr.DataArray):
-            out = xr.decode_cf(xr.Dataset({"arr": obj}), **self._cf_kwargs).arr
-        else:
-            out = xr.decode_cf(obj, **self._cf_kwargs)
-        return out
-
-    @property
-    def moments(self):
-        """Return list of moments."""
-        return [f"{k.quantity}" for k in self]
+        self._seq.extend(self._get_moments())
+        self.fixed_angle
 
     def _get_nrays(self):
-        start_idx = self.ncfile["sweep_start_ray_index"][self._idx]
-        end_idx = self.ncfile["sweep_end_ray_index"][self._idx]
+        start_idx = self._ncfile["sweep_start_ray_index"][self._idx]
+        end_idx = self._ncfile["sweep_end_ray_index"][self._idx]
         return end_idx - start_idx
 
     def _get_nbins(self):
-        return self.ncfile.dimensions["range"].size
+        return self._ncfile.dimensions["range"].size
+
+    def _get_time(self):
+        start = dateutil.parser.parse(self._ncfile["time"].units, fuzzy=True)
+        start = start.replace(tzinfo=None).timestamp()
+        start_idx = self._ncfile["sweep_start_ray_index"][self._idx]
+        offset = self._ncfile["time"][start_idx].item()
+        start = np.array([start + offset])
+        attrs = {"units": "seconds since 1970-01-01T00:00:00Z", "standard_name": "time"}
+        da = xr.DataArray(start, attrs=attrs)
+        return da
 
     def _get_time_fast(self):
         if self._fast_time is None:
             start = dateutil.parser.parse(self.ncfile["time"].units, fuzzy=True)
-            start_idx = self.ncfile["sweep_start_ray_index"][self._idx]
-            offset = self.ncfile["time"][start_idx].item()
+            start_idx = self._ncfile["sweep_start_ray_index"][self._idx]
+            offset = self._ncfile["time"][start_idx].item()
             start = start + dt.timedelta(seconds=offset)
             self._fast_time = start
         return self._fast_time
 
     def _get_ray_times(self):
-        start = dateutil.parser.parse(self.ncfile["time"].units, fuzzy=True)
+        start = dateutil.parser.parse(self._ncfile["time"].units, fuzzy=True)
         start = start.replace(tzinfo=None).timestamp()
-        start_idx = self.ncfile["sweep_start_ray_index"][self._idx]
-        end_idx = self.ncfile["sweep_end_ray_index"][self._idx]
-        offset = self.ncfile["time"][start_idx:end_idx]
+        start_idx = self._ncfile["sweep_start_ray_index"][self._idx]
+        end_idx = self._ncfile["sweep_end_ray_index"][self._idx]
+        offset = self._ncfile["time"][start_idx:end_idx]
         time_data = np.array([start + off for off in offset])
         attrs = {"units": "seconds since 1970-01-01T00:00:00Z", "standard_name": "time"}
         da = xr.DataArray(time_data, dims=[self._dim0[0]], attrs=attrs)
         return da
 
-    @property
-    def ray_times(self):
-        """Return and cache ray_times xr.DataArray."""
-        if self._rtime is None:
-            da = self._get_ray_times()
-            # decode, if necessary
-            if self.decode_times:
-                da = self._decode_cf(da)
-            self._rtime = da
-        return self._rtime
-
-    @property
-    def nrays(self):
-        """Return and cache number of rays."""
-        if self._nrays is None:
-            self._nrays = self._get_nrays()
-        return self._nrays
-
-    @property
-    def nbins(self):
-        """Return and cache number of bins."""
-        if self._nbins is None:
-            self._nbins = self._get_nbins()
-        return self._nbins
-
-    @property
-    def chunks(self):
-        """Return `chunks` setting."""
-        return self._dask_kwargs.get("chunks")
-
-    @property
-    def parallel(self):
-        """Return `parallel` setting."""
-        return self._dask_kwargs.get("parallel")
-
-    @property
-    def mask_and_scale(self):
-        """Return `mask_and_scale` setting."""
-        return self._cf_kwargs.get("mask_and_scale")
-
-    @property
-    def decode_coords(self):
-        """Return `decode_coords` setting."""
-        return self._cf_kwargs.get("decode_coords")
-
-    @property
-    def decode_times(self):
-        """Return `decode_times` setting."""
-        return self._cf_kwargs.get("decode_times")
-
-    @property
-    def ncpath(self):
-        """Returns path string inside HDF5 File."""
-        return self._ncpath
-
-    @property
-    def ncid(self):
-        """Returns handle for current path."""
-        # root-group can't be subset with netcdf4 and h5netcdf
-        if self._ncpath == "/":
-            if isinstance(self.ncfile, (nc.Dataset, h5netcdf.File)):
-                return self._ncfile
-        return self._ncfile[self.ncpath]
-
-    @property
-    def ncfile(self):
-        """Returns file handle."""
-        return self._ncfile
-
-    @property
-    def filename(self):
-        """Return filename group belongs to."""
-        if isinstance(self.ncfile, nc.Dataset):
-            return self.ncfile.filepath()
-        else:
-            return self.ncfile.filename
-
-    @property
-    def engine(self):
-        """Return engine used for accessing data"""
-        if isinstance(self.ncfile, nc.Dataset):
-            return "netcdf4"
-        else:
-            return "h5netcdf"
-
     def _get_fixed_angle(self):
-        angle = self.ncfile["fixed_angle"][self._idx]
+        angle = self._ncfile["fixed_angle"][self._idx]
         angle = np.round(angle, decimals=1)
-        if "azi" in nc.chartostring(self.ncfile["sweep_mode"][self._idx]):
+        if "azi" in nc.chartostring(self._ncfile["sweep_mode"][self._idx]):
             self._dim0 = (self._dim0[1], self._dim0[0])
         return angle
-
-    @property
-    def fixed_angle(self):
-        """Return and cache elevation angle in degree."""
-        if self._fixed_angle is None:
-            self._fixed_angle = self._get_fixed_angle()
-        return self._fixed_angle
 
     def _get_moments(self):
         moments_names = []
@@ -2423,8 +2327,8 @@ class XRadSweepCfRadial(XRadFileAccessMixin, XRadBase):
             if var in moments_mapping:
                 moments_names.append(var)
         moments = [
-            XRadMoment(
-                ncfile=self.ncfile, ncpath=mom, parent=self
+            XRadMomentCfRadial(
+                self, mom,
             )
             for mom in moments_names
         ]
@@ -2502,65 +2406,33 @@ class XRadSweepCfRadial(XRadFileAccessMixin, XRadBase):
 
     @property
     def data(self):
-        """Return and cache moments as combined xr.Dataset"""
         if self._data is None:
             self._data = self._merge_moments()
+
+            # if metadata declared in XRadTimeseries, load and assign
+            if self.parent._meta is not None:
+                vars = dict()
+                for k, v in self.parent._meta.items():
+                    attr = self._get_attribute(v, attr=k)
+                    if hasattr(attr, "ndim"):
+                        attr = xr.DataArray(attr, dims=[self._dim0[0]])
+                    vars[k] = attr
+                self._data = self._data.assign(vars)
+
+            if self.mask_and_scale | self.decode_coords | self.decode_times:
+                self._data = self._data.pipe(self._decode_cf)
+
         return self._data
 
 
-def _open_cfradial_sweep(filename, loader, **kwargs):
-    """Returns list of XRadSweep objects
-
-    Every sweep will be put into it's own class instance.
-    """
-    ld_kwargs = kwargs.get("ld_kwargs", {})
-    if loader == "netcdf4":
-        opener = nc.Dataset
-        attr = "groups"
-    else:
-        opener = h5netcdf.File
-        attr = "keys"
-        ld_kwargs["phony_dims"] = "access"
-
-    sweep_cls = XRadSweepCfRadial
-
-    # open file
-    if not isinstance(filename, str):
-        if opener == nc.Dataset:
-            handle = opener(
-                f"{str(filename)}", mode="r", memory=filename.read(), **ld_kwargs
-            )
-        else:
-            handle = opener(filename, "r", **ld_kwargs)
-    else:
-        handle = opener(filename, "r", **ld_kwargs)
-
-    # get dimension names
-    sweeps = np.arange(handle.dimensions["sweep"].size)
-
-    # iterate over single sweeps
-
-    return [sweep_cls(handle, None, idx=k, **kwargs) for k in sweeps]
-
-
-
-class XRadTimeSeries(OdimH5GroupAttributeMixin, XRadBase):
+class XRadTimeSeries(XRadBase):
     """Class for holding a timeseries of radar sweeps"""
 
     def __init__(self, **kwargs):
-        super(XRadTimeSeries, self).__init__()
+        super().__init__()
         self._data = None
         self._moments = None
         self._meta = None
-
-    # override append and claim file for OdimH5GroupAttributeMixin
-    def append(self, value):
-        # do only for first file in this timeseries
-        value._parent = self
-        if not len(self):
-            self._ncfile = value.ncfile
-            self._ncpath = value.ncpath
-        return super(XRadTimeSeries, self).append(value)
 
     def __repr__(self):
         summary = ["<wradlib.{}>".format(type(self).__name__)]
@@ -2578,6 +2450,47 @@ class XRadTimeSeries(OdimH5GroupAttributeMixin, XRadBase):
 
     def reset_data(self):
         self._data = None
+
+    @property
+    def data(self):
+        return NotImplementedError
+
+    def check_rays(self):
+        return NotImplementedError
+
+    def check_moments(self):
+        return NotImplementedError
+
+    def set_moments(self, moments):
+        if not isinstance(moments, list):
+            pass
+        else:
+            self._moments = moments
+
+    def set_metadata(self, metadata):
+        if not isinstance(metadata, dict):
+            pass
+        else:
+            self._meta = metadata
+
+
+class XRadTimeSeriesOdim(XRadFileAccessMixin, OdimH5GroupAttributeMixin, XRadTimeSeries):
+    """Class for holding a timeseries of Odim radar sweeps"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self._data = None
+        self._moments = None
+        self._meta = None
+
+    # override append and claim file for OdimH5GroupAttributeMixin
+    def append(self, value):
+        # do only for first file in this timeseries
+        value._parent = self
+        if not len(self):
+            self._ncfile = value.ncfile
+            self._ncpath = value.ncpath
+        return super().append(value)
 
     @property
     def data(self):
@@ -2643,24 +2556,15 @@ class XRadTimeSeries(OdimH5GroupAttributeMixin, XRadBase):
                 miss[mom] = idx
         return miss
 
-    def set_moments(self, moments):
-        if not isinstance(moments, list):
-            pass
-        else:
-            self._moments = moments
 
-    def set_metadata(self, metadata):
-        if not isinstance(metadata, dict):
-            pass
-        else:
-            self._meta = metadata
-
-
-class XRadVolume(OdimH5GroupAttributeMixin, XRadBase):
+class XRadVolume(XRadBase):
     """Class for holding a volume of radar sweeps"""
 
     def __init__(self, **kwargs):
-        super(XRadVolume, self).__init__()
+        super().__init__()
+        self._ncfile = None
+        self._ncpath = None
+        self._parent = None
         self._data = None
         self._root = None
 
@@ -2684,94 +2588,22 @@ class XRadVolume(OdimH5GroupAttributeMixin, XRadBase):
         return self._root
 
     def assign_root(self):
-        """(Re-)Create root object according CfRadial2 standard"""
-        # assign root variables
-        sweep_group_names = [f"sweep_{i}" for i in range(len(self))]
-
-        try:
-            sweep_fixed_angles = [ts[0].fixed_angle for ts in self]
-        except AttributeError:
-            sweep_fixed_angles = [ts.fixed_angle for ts in self]
-
-        # extract time coverage
-        times = np.array(
-            [[t[0].ray_times.values.min(), t[-1].ray_times.values.max()] for t in self]
-        ).flatten()
-        time_coverage_start = min(times)
-        time_coverage_end = max(times)
-
-        time_coverage_start_str = str(time_coverage_start)[:19] + "Z"
-        time_coverage_end_str = str(time_coverage_end)[:19] + "Z"
-
-        # create root group from scratch
-        root = xr.Dataset()  # data_vars=wrl.io.xarray.global_variables,
-        # attrs=wrl.io.xarray.global_attrs)
-
-        # take first dataset/file for retrieval of location
-        site = self.site
-
-        # assign root variables
-        root = root.assign(
-            {
-                "volume_number": 0,
-                "platform_type": str("fixed"),
-                "instrument_type": "radar",
-                "primary_axis": "axis_z",
-                "time_coverage_start": time_coverage_start_str,
-                "time_coverage_end": time_coverage_end_str,
-                "latitude": site["latitude"].values,
-                "longitude": site["longitude"].values,
-                "altitude": site["altitude"].values,
-                "sweep_group_name": (["sweep"], sweep_group_names),
-                "sweep_fixed_angle": (["sweep"], sweep_fixed_angles),
-            }
-        )
-
-        # assign root attributes
-        attrs = collections.OrderedDict()
-        attrs.update(
-            {
-                "version": "None",
-                "title": "None",
-                "institution": "None",
-                "references": "None",
-                "source": "None",
-                "history": "None",
-                "comment": "im/exported using wradlib",
-                "instrument_name": "None",
-            }
-        )
-        #attrs["version"] = self.what["version"]
-        root = root.assign_attrs(attrs)
-        root = root.assign_attrs(self.attrs)
-        self._root = root
+        raise NotImplementedError
 
     @property
     def site(self):
         """Return coordinates of radar site."""
-        try:
-            longitude = xr.DataArray(data=self.ncfile["longitude"][:].item(),
-                                     name="longitude",
-                                     attrs=self._get_attributes("longitude", self.ncfile))
-            latitude = xr.DataArray(data=self.ncfile["latitude"][:].item(),
-                                    name="latitude",
-                                    attrs=self._get_attributes("latitude", self.ncfile))
-            altitude = xr.DataArray(data=self.ncfile["altitude"][:].item(),
-                                    name="altitude",
-                                    attrs=self._get_attributes("altitude", self.ncfile))
-            coords = dict(longitude=longitude, latitude=latitude, altitude=altitude)
-            ds = xr.Dataset(coords=coords)
-        except ValueError:
-            ds = xr.Dataset(coords=self.where).rename(
-                {"height": "altitude", "lon": "longitude", "lat": "latitude"}
-            )
-        return ds
+        keys = ["latitude", "longitude", "altitude"]
+        dsx = self.root[keys]
+        dsx.attrs = {}
+        dsx = xr.Dataset(coords=dsx)
+        return dsx
 
     @property
     def Conventions(self):
         """Return Conventions string."""
         try:
-            conv = self.ncid.attrs["Conventions"]
+            conv = self.root.attrs["Conventions"]
         except KeyError:
             conv = None
         return conv
@@ -2834,6 +2666,188 @@ class XRadVolume(OdimH5GroupAttributeMixin, XRadBase):
             )
 
 
+class XRadVolumeOdim(XRadFileAccessMixin, OdimH5GroupAttributeMixin, XRadVolume):
+    """Class for holding a volume of radar sweeps"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self._ncfile = None
+        self._ncpath = None
+        self._parent = None
+        self._data = None
+        self._root = None
+
+    def assign_root(self):
+        """(Re-)Create root object according CfRadial2 standard"""
+        # assign root variables
+        sweep_group_names = [f"sweep_{i}" for i in range(len(self))]
+
+        try:
+            sweep_fixed_angles = [ts[0].fixed_angle for ts in self]
+        except AttributeError:
+            sweep_fixed_angles = [ts.fixed_angle for ts in self]
+
+        # extract time coverage
+        times = np.array(
+            [[t[0].ray_times.values.min(), t[-1].ray_times.values.max()] for t in self]
+        ).flatten()
+        time_coverage_start = min(times)
+        time_coverage_end = max(times)
+
+        time_coverage_start_str = str(time_coverage_start)[:19] + "Z"
+        time_coverage_end_str = str(time_coverage_end)[:19] + "Z"
+
+        # create root group from scratch
+        root = xr.Dataset()  # data_vars=wrl.io.xarray.global_variables,
+        # attrs=wrl.io.xarray.global_attrs)
+
+        # take first dataset/file for retrieval of location
+        swp = self[0]
+        if isinstance(swp, XRadSweepCfradial1):
+            longitude = xr.DataArray(data=swp.ncfile["longitude"][:].item(),
+                                     name="longitude",
+                                     attrs=swp._get_attributes("longitude", swp.ncfile))
+            latitude = xr.DataArray(data=swp.ncfile["latitude"][:].item(),
+                                    name="latitude",
+                                    attrs=swp._get_attributes("latitude", swp.ncfile))
+            altitude = xr.DataArray(data=swp.ncfile["altitude"][:].item(),
+                                    name="altitude",
+                                    attrs=swp._get_attributes("altitude", swp.ncfile))
+            coords = dict(longitude=longitude, latitude=latitude, altitude=altitude)
+            site = xr.Dataset(coords=coords)
+        else:
+            # Todo: add cf metadata
+            site = xr.Dataset(coords=self.where).rename(
+                {"height": "altitude", "lon": "longitude", "lat": "latitude"}
+            )
+
+        # assign root variables
+        root = root.assign(
+            {
+                "volume_number": 0,
+                "platform_type": str("fixed"),
+                "instrument_type": "radar",
+                "primary_axis": "axis_z",
+                "time_coverage_start": time_coverage_start_str,
+                "time_coverage_end": time_coverage_end_str,
+                "latitude": site["latitude"].values,
+                "longitude": site["longitude"].values,
+                "altitude": site["altitude"].values,
+                "sweep_group_name": (["sweep"], sweep_group_names),
+                "sweep_fixed_angle": (["sweep"], sweep_fixed_angles),
+            }
+        )
+
+        # assign root attributes
+        attrs = collections.OrderedDict()
+        attrs.update(
+            {
+                "version": "None",
+                "title": "None",
+                "institution": "None",
+                "references": "None",
+                "source": "None",
+                "history": "None",
+                "comment": "im/exported using wradlib",
+                "instrument_name": "None",
+            }
+        )
+        root = root.assign_attrs(attrs)
+        root = root.assign_attrs(self.attrs)
+        self._root = root
+
+
+class XRadVolumeCfradial(XRadFileAccessMixin, OdimH5GroupAttributeMixin, XRadVolume):
+    """Class for holding a volume of CfRadial radar sweeps"""
+
+    def __init__(self, **kwargs):
+        super().__init__()
+        self._ncfile = None
+        self._ncpath = None
+        self._parent = None
+        self._data = None
+        self._root = None
+
+    def assign_root(self):
+        """(Re-)Create root object according CfRadial2 standard"""
+        # assign root variables
+        sweep_group_names = [f"sweep_{i}" for i in range(len(self))]
+
+        try:
+            sweep_fixed_angles = [ts[0].fixed_angle for ts in self]
+        except AttributeError:
+            sweep_fixed_angles = [ts.fixed_angle for ts in self]
+
+        # extract time coverage
+        times = np.array(
+            [[t[0].ray_times.values.min(), t[-1].ray_times.values.max()] for t in self]
+        ).flatten()
+        time_coverage_start = min(times)
+        time_coverage_end = max(times)
+
+        time_coverage_start_str = str(time_coverage_start)[:19] + "Z"
+        time_coverage_end_str = str(time_coverage_end)[:19] + "Z"
+
+        # create root group from scratch
+        root = xr.Dataset()  # data_vars=wrl.io.xarray.global_variables,
+        # attrs=wrl.io.xarray.global_attrs)
+
+        # take first dataset/file for retrieval of location
+        swp = self[0]
+        if isinstance(self, XRadVolumeCfradial):
+            longitude = xr.DataArray(data=swp._ncfile["longitude"][:].item(),
+                                     name="longitude",
+                                     attrs=swp._get_attributes("longitude", swp._ncfile))
+            latitude = xr.DataArray(data=swp._ncfile["latitude"][:].item(),
+                                    name="latitude",
+                                    attrs=swp._get_attributes("latitude", swp._ncfile))
+            altitude = xr.DataArray(data=swp._ncfile["altitude"][:].item(),
+                                    name="altitude",
+                                    attrs=swp._get_attributes("altitude", swp._ncfile))
+            coords = dict(longitude=longitude, latitude=latitude, altitude=altitude)
+            site = xr.Dataset(coords=coords)
+        else:
+            # Todo: add cf metadata
+            site = xr.Dataset(coords=self.where).rename(
+                {"height": "altitude", "lon": "longitude", "lat": "latitude"}
+            )
+
+        # assign root variables
+        root = root.assign(
+            {
+                "volume_number": 0,
+                "platform_type": str("fixed"),
+                "instrument_type": "radar",
+                "primary_axis": "axis_z",
+                "time_coverage_start": time_coverage_start_str,
+                "time_coverage_end": time_coverage_end_str,
+                "latitude": site["latitude"].values,
+                "longitude": site["longitude"].values,
+                "altitude": site["altitude"].values,
+                "sweep_group_name": (["sweep"], sweep_group_names),
+                "sweep_fixed_angle": (["sweep"], sweep_fixed_angles),
+            }
+        )
+
+        # assign root attributes
+        attrs = collections.OrderedDict()
+        attrs.update(
+            {
+                "version": "None",
+                "title": "None",
+                "institution": "None",
+                "references": "None",
+                "source": "None",
+                "history": "None",
+                "comment": "im/exported using wradlib",
+                "instrument_name": "None",
+            }
+        )
+        root = root.assign_attrs(attrs)
+        root = root.assign_attrs(self.attrs)
+        self._root = root
+
+
 def collect_by_time(obj):
     """Collect XRadSweep objects having same time
 
@@ -2847,9 +2861,13 @@ def collect_by_time(obj):
     out : XRadTimeSeries
         wrapper around list of XRadSweep objects
     """
-    out = XRadTimeSeries()
-    if isinstance(obj, (XRadSweep, XRadSweepCfRadial)):
+    #out = XRadTimeSeries()
+    if isinstance(obj, (XRadSweep, XRadSweepCfradial1)):
         obj = [obj]
+    if isinstance(obj[0], (XRadSweepOdim, XRadSweepGamic)):
+        out = XRadTimeSeriesOdim()
+    else:
+        out = XRadTimeSeriesOdim()
     times = [ds._get_time_fast() for ds in obj]
     unique_times = np.array(sorted(list(set(times))))
     if len(unique_times) == len(obj):
@@ -2879,7 +2897,12 @@ def collect_by_angle(obj):
     out : XRadVolume
         wrapper around nested list of XRadSweep objects
     """
-    out = XRadVolume()
+    if isinstance(obj[0], (XRadSweepOdim, XRadSweepGamic)):
+        out = XRadVolumeOdim()
+    elif isinstance(obj[0], XRadSweepCfradial1):
+        out = XRadVolumeCfradial()
+    else:
+        out = XRadVolume()
     angles = [ds.fixed_angle for ds in obj]
     unique_angles = list(set(angles))
     if len(unique_angles) == len(obj):
@@ -2911,7 +2934,7 @@ def _open_odim_sweep(filename, loader, **kwargs):
 
     dsdesc = "dataset"
     sweep_cls = XRadSweepOdim
-    if "GAMIC" in kwargs.get("flavour", "ODIM"):
+    if "GAMIC" in kwargs.pop("flavour", "ODIM"):
         if loader == "netcdf4":
             raise ValueError(
                 "wradlib: GAMIC files can't be read using netcdf4"
@@ -2948,7 +2971,7 @@ def _open_odim_sweep(filename, loader, **kwargs):
     sweeps = [k for k in groups if dsdesc in k]
     sweeps_idx = np.argsort([int(s[len(dsdesc) :]) for s in sweeps])
     sweeps = np.array(sweeps)[sweeps_idx].tolist()
-    return [sweep_cls(handle, k, **kwargs) for k in sweeps]
+    return [sweep_cls(handle, k, None, **kwargs) for k in sweeps]
 
 
 def open_odim(paths, loader="netcdf4", **kwargs):
@@ -3000,6 +3023,41 @@ def open_odim(paths, loader="netcdf4", **kwargs):
     return angles
 
 
+def _open_cfradial_sweep(filename, loader, **kwargs):
+    """Returns list of XRadSweep objects
+
+    Every sweep will be put into it's own class instance.
+    """
+    ld_kwargs = kwargs.get("ld_kwargs", {})
+    if loader == "netcdf4":
+        opener = nc.Dataset
+        attr = "groups"
+    else:
+        opener = h5netcdf.File
+        attr = "keys"
+        ld_kwargs["phony_dims"] = "access"
+
+    sweep_cls = XRadSweepCfradial1
+
+    # open file
+    if not isinstance(filename, str):
+        if opener == nc.Dataset:
+            handle = opener(
+                f"{str(filename)}", mode="r", memory=filename.read(), **ld_kwargs
+            )
+        else:
+            handle = opener(filename, "r", **ld_kwargs)
+    else:
+        handle = opener(filename, "r", **ld_kwargs)
+
+    # get dimension names
+    sweeps = np.arange(handle.dimensions["sweep"].size)
+
+    # iterate over single sweeps
+
+    return [sweep_cls(handle, None, idx=k, **kwargs) for k in sweeps]
+
+
 def open_cfradial(paths, loader="netcdf4", **kwargs):
     if isinstance(paths, str):
         paths = glob.glob(paths)
@@ -3025,7 +3083,6 @@ def open_cfradial(paths, loader="netcdf4", **kwargs):
     angles._ncpath = "/"
 
     return angles
-
 
 
 class XRadVolFile(object):
