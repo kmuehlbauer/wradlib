@@ -80,9 +80,27 @@ def create_a1gate(i):
     return i + 20
 
 
+def create_ray_time(start, stop, a1gate=0, nrays=360):
+    arr = np.linspace(start.timestamp(), stop.timestamp(), nrays + 1, endpoint=True, dtype=np.float64)
+    arr = np.roll(arr, shift=a1gate)
+    return arr[:-1], arr[1:]
+
+
+def create_ray_azimuth(nrays=360):
+    arr = np.linspace(0, 360, nrays + 1, endpoint=True, dtype=np.float32)
+    return arr[:-1], arr[1:]
+
+
+def create_ray_elevation(elangle=0, nrays=360):
+    print("rays:", nrays)
+    print(type(nrays))
+    arr = np.ones(nrays + 1, dtype=np.float32) * elangle
+    return arr[:-1], arr[1:]
+
+
 def create_startazT(i, nrays=361):
     start = 1307700610.0
-    arr = np.linspace(start, start + 360, 360, endpoint=False, dtype=np.float64)
+    arr = np.linspace(0, 360, 361, endpoint=False, dtype=np.float64)
     arr = np.roll(arr, shift=create_a1gate(i))
     if nrays == 361:
         arr = np.insert(arr, 10, arr[-1], axis=0)
@@ -128,37 +146,54 @@ def create_stopelA(i, nrays=360):
     return arr
 
 
+def create_dset_how(start, stop, nrays=360, a1gate=0, elangle=0):
+    startazT, stopazT = create_ray_time(start, stop, nrays=nrays, a1gate=a1gate)
+    startazA, stopazA = create_ray_azimuth(nrays=nrays)
+    startelA, stopelA = create_ray_elevation(nrays=nrays, elangle=elangle)
 
-def create_dset_how(i, nrays=360):
     return {
-        "startazA": create_startazA(nrays=nrays),
-        "stopazA": create_stopazA(nrays=nrays),
-        "startelA": create_startelA(i, nrays=nrays),
-        "stopelA": create_stopelA(i, nrays=nrays),
-        "startazT": create_startazT(i, nrays=nrays),
-        "stopazT": create_stopazT(i, nrays=nrays),
+        "startazA": startazA,
+        "stopazA": stopazA,
+        "startelA": startelA,
+        "stopelA": stopelA,
+        "startazT": startazT,
+        "stopazT": stopazT,
     }
 
 
-def create_dset_where(i, nrays=360):
+def create_dset_where(a1gate=0, elangle=0, nrays=360,
+                      nbins=100, rstart=0, rscale=1000):
     return {
-        "a1gate": np.array([create_a1gate(i)], dtype=np.int),
-        "elangle": np.array([i + 0.5], dtype=np.float32),
+        "a1gate": np.array([a1gate], dtype=np.int),
+        "elangle": np.array([elangle], dtype=np.float32),
         "nrays": np.array([nrays], dtype=np.int),
-        "nbins": np.array([100], dtype=np.int),
-        "rstart": np.array([0], dtype=np.float32),
-        "rscale": np.array([1000], dtype=np.float32),
+        "nbins": np.array([nbins], dtype=np.int),
+        "rstart": np.array([rstart], dtype=np.float32),
+        "rscale": np.array([rscale], dtype=np.float32),
     }
 
 
-def create_dset_what():
+def create_dset_what(start, stop):
     return {
-        "startdate": np.array([b"20110610"], dtype="|S9"),
-        "starttime": np.array([b"101010"], dtype="|S7"),
-        "enddate": np.array([b"20110610"], dtype="|S9"),
-        "endtime": np.array([b"101610"], dtype="|S7"),
+        "startdate": np.array([f"{start:%y%m%d}"], dtype="|S9"),
+        "starttime": np.array([f"{start:%H%M%S}"], dtype="|S7"),
+        "enddate": np.array([f"{stop:%y%m%d}"], dtype="|S9"),
+        "endtime": np.array([f"{stop:%H%M%S}"], dtype="|S7"),
     }
 
+
+moment_map = dict(DBZH=dict(gain=0.5, nodata=255., offset=-31.5, undetect=0.),
+                  DBZV=dict(gain=0.5, nodata=255., offset=-31.5, undetect=0.))
+
+def create_mom_what(mom):
+    mm = moment_map[mom]
+    return {
+        "gain": np.array([mm["gain"]], dtype=np.float32),
+        "nodata": np.array([mm["nodata"]], dtype=np.float32),
+        "offset": np.array([mm["offset"]], dtype=np.float32),
+        "quantity": np.array([mom], dtype=f"|S{len(mom)+1}"),
+        "undetect": np.array([mm["undetect"]], dtype=np.float32),
+    }
 
 def create_dbz_what():
     return {
@@ -185,35 +220,33 @@ def create_root_what():
     return {"version": "9"}
 
 
-def create_synthetic_odim_dataset(nrays=360):
-    data = {}
-    root_attrs = dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13"))
-
-    foo_data = create_data(nrays=nrays)
-
-    dataset = ["dataset1", "dataset2"]
-    datas = ["data1"]
-
-    data["where"] = {}
-    data["where"]["attrs"] = create_root_where()
-    data["what"] = {}
-    data["what"]["attrs"] = create_root_what()
-    for i, grp in enumerate(dataset):
-        sub = {}
-        sub["how"] = {}
-        sub["where"] = {}
-        sub["where"]["attrs"] = create_dset_where(i, nrays=nrays)
-        sub["what"] = {}
-        sub["what"]["attrs"] = create_dset_what()
-        for j, mom in enumerate(datas):
-            sub2 = {}
-            sub2["data"] = foo_data
-            sub2["what"] = {}
-            sub2["what"]["attrs"] = create_dbz_what()
-            sub[mom] = sub2
-        data[grp] = sub
-    data["attrs"] = root_attrs
-    return data
+def create_synthetic_odim_dataset(obj):
+    odim = {}
+    for k, v in obj.items():
+        if k == "root":
+            for k1, v1 in v.items():
+                if "attrs" not in k1:
+                    odim[k1] = {}
+                    if v1:
+                        odim[k1]["attrs"] = v1
+                else:
+                    odim[k1] = v1
+        else:
+            sub = {}
+            for k2, v2 in v.items():
+                if "data" not in k2:
+                    sub[k2] = {}
+                    if v2:
+                        sub[k2]["attrs"] = v2
+                else:
+                    for data, mom in v2.items():
+                        sub2 = {}
+                        sub2["what"] = {}
+                        sub2["what"]["attrs"] = create_mom_what(mom)
+                        sub2["data"] = create_data(nrays=v["where"]["nrays"])
+                        sub[data] = sub2
+            odim[k] = sub
+    return odim
 
 
 def create_synthetic_odim_file(tmp_local, data):
