@@ -1,47 +1,17 @@
 # Copyright (c) 2011-2020, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
-import contextlib
-import gc
-import io as sio
 import tempfile
 import datetime as dt
 
-import h5py
 import numpy as np
-import pytest
-import xarray as xr
 
-from wradlib import io, util
-from wradlib.synthetic import (
-    create_data,
-    create_root_where,
-    create_root_what,
-    create_dset_how,
-    create_dset_where,
-    create_dset_what,
-    create_ray_time,
-    create_dbz_what,
-    create_synthetic_odim_file,
-    write_odim_dataset,
-    write_gamic_dataset,
-    write_gamic_ray_header,
-    write_group,
+from wradlib import io
+from wradlib.io.odim import (
+    create_odim_sweep_dset,
     create_synthetic_odim_dataset,
+    create_synthetic_odim_file,
 )
-
-from . import has_data, requires_data
-
-
-def string_to_char(arr):
-    """Like nc4.stringtochar, but faster and more flexible.
-    """
-    # ensure the array is contiguous
-    arr = np.array(arr, copy=False, order="C")
-    kind = arr.dtype.kind
-    if kind not in ["U", "S"]:
-        raise ValueError("argument must be a string")
-    return arr.reshape(arr.shape + (1,)).view(kind + "1")
 
 
 def test_create_synthetic_odim_file():
@@ -52,27 +22,20 @@ def test_create_synthetic_odim_file():
     lat = 50.730599
     start_time = dt.datetime(2011, 6, 10, 10, 10, 10)
     stop_time = start_time + dt.timedelta(seconds=50)
-    print(create_ray_time(start_time, stop_time)[0].shape)
+
     odim = dict(root=dict(
         where=dict(height=height, lon=lon, lat=lat),
         what=dict(version="9"),
         attrs=dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13")),
     ),
-        dataset1=dict(
-            where=create_dset_where(elangle=1.0),
-            what=create_dset_what(start_time, stop_time),
-            how=create_dset_how(start_time, stop_time, elangle=1.0),
-            data=dict(data1="DBZH", data2="DBZV"),
-        ),
-        dataset2=dict(
-            where=create_dset_where(elangle=2.5),
-            what=create_dset_what(
-                start_time + dt.timedelta(minutes=1), stop_time + dt.timedelta(minutes=1)
-            ),
-            how=create_dset_how(start_time + dt.timedelta(minutes=1),
-                                stop_time + dt.timedelta(minutes=1), elangle=2.5),
-            data=dict(data1="DBZH", data2="DBZV"),
-        ),
+        dataset1=create_odim_sweep_dset(["DBZH", "DBZV"],
+                                        start_time,
+                                        stop_time,
+                                        elangle=1.0),
+        dataset2=create_odim_sweep_dset(["DBZH", "DBZV"],
+                                        start_time + dt.timedelta(minutes=1),
+                                        stop_time + dt.timedelta(minutes=1),
+                                        elangle=2.5),
     )
 
     data = create_synthetic_odim_dataset(odim)

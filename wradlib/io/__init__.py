@@ -28,6 +28,7 @@ from .hdf import *
 from .iris import *
 from .misc import *
 from .netcdf import *
+from .odim import *
 from .radolan import *
 from .rainbow import *
 from .xarray import *

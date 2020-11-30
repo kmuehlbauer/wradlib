@@ -4,6 +4,8 @@
 import contextlib
 import gc
 import io as sio
+import tempfile
+import datetime as dt
 
 import h5py
 import numpy as np
@@ -275,7 +277,7 @@ def get_measured_volume(file, loader, format, fileobj):
 
 
 @contextlib.contextmanager
-def get_synthetic_volume(name, get_loader, file_or_filelike, **kwargs):
+def get_synthetic_volume(name, data, get_loader, file_or_filelike, **kwargs):
     import tempfile
     tmp_local = tempfile.NamedTemporaryFile(suffix=".h5", prefix=name).name
     if "gamic" in name:
@@ -283,13 +285,30 @@ def get_synthetic_volume(name, get_loader, file_or_filelike, **kwargs):
     else:
         format = "ODIM"
     with h5py.File(str(tmp_local), "w") as f:
-        data = globals()[name]()
         write_group(f, data)
     with get_wradlib_data_file(tmp_local, file_or_filelike) as h5file:
         yield io.xarray.open_odim(h5file, loader=get_loader, flavour=format, **kwargs)
 
 
-def base_odim_data_00(nrays=360):
+def base_odim_data_00(src, nrays=360):
+    odim = dict(root=dict(
+        where=dict(height=src.height, lon=src.lon, lat=src.lat),
+        what=dict(version=src.version),
+        attrs=dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13")),
+    ))
+
+    for swp in range(srw.sweeps):
+        dset = io.create_odim_sweep_dset(src.moments,
+                                         src.start_time + swp * src.time_diff,
+                                         src.stop_time + swp * src.time_diff,
+                                         elangle=src.elevations[swp])
+        odim.update({f"dataset{swp+1}": dset})
+
+    data = io.create_synthetic_odim_dataset(odim)
+    return data
+
+
+def base_odim_data_00a(nrays=360):
     data = {}
     root_attrs = [("Conventions", np.array([b"ODIM_H5/V2_0"], dtype="|S13"))]
     data["attrs"] = root_attrs
@@ -629,6 +648,8 @@ def check_odim_volume(test, vol, get_loader):
 
 
 def create_test_ds(test, i, type=None, cf=0):
+    print("create test ds")
+    print(i, test)
     data = create_dataset(i, type=type )
     if cf == 0:
         return data
@@ -647,7 +668,8 @@ def create_test_ds(test, i, type=None, cf=0):
 
 def check_odim_volume_data(test, vol, get_loader, cf):
     for i, ts in enumerate(vol):
-        ds = create_test_ds(test, i, type=test.format, cf=cf)
+        print(test.data)
+        ds = create_test_ds(test.data[f"dataset{i+1}"], i, type=test.format, cf=cf)
         xr.testing.assert_equal(ts.data, ds.expand_dims("time"))
         for j, swp in enumerate(ts):
             ds = create_dataset(i)
@@ -1191,17 +1213,36 @@ class MeasuredCfRadial1DataVolume(CfRadial1DataVolume):
             yield vol
 
 
-class SyntheticDataVolume(DataVolume):
-    @contextlib.contextmanager
-    def get_volume_data(self, loader, fileobj, **kwargs):
-        with get_synthetic_volume(self.name, loader, fileobj, **kwargs) as vol:
-            yield vol
+#class SyntheticDataVolume(DataVolume):
+#    @contextlib.contextmanager
+#    def get_volume_data(self, loader, fileobj, **kwargs):
+#        with get_synthetic_volume(self.name, loader, fileobj, **kwargs) as vol:
+#            yield vol
 
 class SyntheticDataVolume(SyntheticOdimDataVolume):
     @contextlib.contextmanager
     def get_volume_data(self, loader, fileobj, **kwargs):
-        with get_synthetic_volume(self.name, loader, fileobj, **kwargs) as vol:
+        self.data = self.get_synthetic_data()
+        with get_synthetic_volume(self.name, self.data, loader, fileobj, **kwargs) as vol:
             yield vol
+
+    # todo: add function which creates xarray datasets per root and sweeps
+    def get_synthetic_data(self):
+        odim = dict(root=dict(
+            where=dict(height=self.height, lon=self.lon, lat=self.lat),
+            what=dict(version=self.version),
+            attrs=dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13")),
+        ))
+
+        for swp in range(self.sweeps):
+            dset = io.create_odim_sweep_dset(self.moments,
+                                             self.start_time + swp * self.time_diff,
+                                             self.stop_time + swp * self.time_diff,
+                                             elangle=self.elevations[swp])
+            odim.update({f"dataset{swp + 1}": dset})
+
+        data = io.create_synthetic_odim_dataset(odim)
+        return data
 
 @requires_data
 class TestKNMIVolume(MeasuredDataVolume):
@@ -1282,111 +1323,166 @@ class TestSyntheticOdimVolume01(SyntheticDataVolume):
     momclass = "XRadMomentOdim"
     volumes = 1
     sweeps = 2
-    moments = ["DBZH"]
-    elevations = [0.5, 1.5]
+    moments = ["DBZH", "DBZV"]
+    elevations = [1.0, 2.5]
     azimuths = [360, 360]
     ranges = [100, 100]
-
-    data = globals()[name]()
-
+    height = 99.5
+    lon = 7.071624
+    lat = 50.730599
+    version = "9"
+    start_time = dt.datetime(2011, 6, 10, 10, 10, 10)
+    stop_time = start_time + dt.timedelta(seconds=50)
+    time_diff = dt.timedelta(minutes=1)
     dsdesc = "dataset{}"
     mdesc = "data{}"
 
 
-class TestSyntheticOdimVolume02(SyntheticDataVolume):
-    name = "base_odim_data_01"
-    format = "ODIM"
-    volclass = "XRadVolumeOdim"
-    tsclass = "XRadTimeSeriesOdim"
-    momclass = "XRadMomentOdim"
-    volumes = 1
-    sweeps = 2
-    moments = ["DBZH"]
-    elevations = [0.5, 1.5]
-    azimuths = [360, 360]
-    ranges = [100, 100]
+# class TestSyntheticOdimVolume02(SyntheticDataVolume):
+#     name = "base_odim_data_01"
+#     format = "ODIM"
+#     volclass = "XRadVolumeOdim"
+#     tsclass = "XRadTimeSeriesOdim"
+#     momclass = "XRadMomentOdim"
+#     volumes = 1
+#     sweeps = 2
+#     moments = ["DBZH"]
+#     elevations = [0.5, 1.5]
+#     azimuths = [360, 360]
+#     ranges = [100, 100]
+#
+#     data = globals()[name]()
+#
+#     dsdesc = "dataset{}"
+#     mdesc = "data{}"
+#
+#
+# class TestSyntheticOdimVolume03(SyntheticDataVolume):
+#     name = "base_odim_data_02"
+#     format = "ODIM"
+#     volclass = "XRadVolumeOdim"
+#     tsclass = "XRadTimeSeriesOdim"
+#     momclass = "XRadMomentOdim"
+#     volumes = 1
+#     sweeps = 2
+#     moments = ["DBZH"]
+#     elevations = [0.5, 1.5]
+#     azimuths = [361, 361]
+#     ranges = [100, 100]
+#
+#     data = globals()[name]()
+#
+#     dsdesc = "dataset{}"
+#     mdesc = "data{}"
+#
+#
+# class TestSyntheticOdimVolume04(SyntheticDataVolume):
+#     name = "base_odim_data_03"
+#     format = "ODIM"
+#     volclass = "XRadVolumeOdim"
+#     tsclass = "XRadTimeSeriesOdim"
+#     momclass = "XRadMomentOdim"
+#     volumes = 1
+#     sweeps = 2
+#     moments = ["DBZH"]
+#     elevations = [0.5, 1.5]
+#     azimuths = [360, 360]
+#     ranges = [100, 100]
+#
+#     data = globals()[name]()
+#
+#     dsdesc = "dataset{}"
+#     mdesc = "data{}"
+#
+#
+# class TestSyntheticGamicVolume01(SyntheticDataVolume):
+#     name = "base_gamic_data"
+#     format = "GAMIC"
+#     volclass = "XRadVolumeOdim"
+#     tsclass = "XRadTimeSeriesOdim"
+#     momclass = "XRadMomentGamic"
+#     volumes = 1
+#     sweeps = 2
+#     moments = ["DBZH"]
+#     elevations = [0.5, 1.5]
+#     azimuths = [360, 360]
+#     ranges = [100, 100]
+#
+#     data = globals()[name]()
+#
+#     dsdesc = "scan{}"
+#     mdesc = "moment_{}"
+#
+#
+# @requires_data
+# class TestCfRadial1Volume(MeasuredCfRadial1DataVolume):
+#     if has_data:
+#         name = "netcdf/cfrad.20080604_002217_000_SPOL_v36_SUR.nc"
+#         format = "CfRadial1"
+#         volclass = "XRadVolumeCfradial"
+#         tsclass = "XRadTimeSeriesOdim"
+#         momclass = "XRadMomentCfRadial"
+#         volumes = 1
+#         sweeps = 9
+#         moments = ["DBZ", "VR"]
+#         elevations = [
+#             0.5, 1.1, 1.8, 2.6, 3.6, 4.7, 6.5, 9.1, 12.8,
+#         ]
+#         azimuths = [482, 482, 481, 482, 480, 481, 481, 483, 482]
+#         ranges = [996] * sweeps
+#
+#         data = io.read_generic_netcdf(util.get_wradlib_data_file(name))
+#
+#         #dsdesc = "dataset{}"
+#         #mdesc = "data{}"
+#
 
-    data = globals()[name]()
+def test_create_synthetic_odim_file():
+    tmp_local = tempfile.NamedTemporaryFile(suffix=".h5", prefix="test").name
 
-    dsdesc = "dataset{}"
-    mdesc = "data{}"
+    height = 99.5
+    lon = 7.071624
+    lat = 50.730599
+    start_time = dt.datetime(2011, 6, 10, 10, 10, 10)
+    stop_time = start_time + dt.timedelta(seconds=50)
 
+    odim = dict(root=dict(
+        where=dict(height=height, lon=lon, lat=lat),
+        what=dict(version="9"),
+        attrs=dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13")),
+    ),
+        dataset1=io.create_odim_sweep_dset(["DBZH", "DBZV"],
+                                           start_time,
+                                           stop_time,
+                                           elangle=1.0),
+        dataset2=io.create_odim_sweep_dset(["DBZH", "DBZV"],
+                                           start_time + dt.timedelta(minutes=1),
+                                           stop_time + dt.timedelta(minutes=1),
+                                           elangle=2.5),
+    )
 
-class TestSyntheticOdimVolume03(SyntheticDataVolume):
-    name = "base_odim_data_02"
-    format = "ODIM"
-    volclass = "XRadVolumeOdim"
-    tsclass = "XRadTimeSeriesOdim"
-    momclass = "XRadMomentOdim"
-    volumes = 1
-    sweeps = 2
-    moments = ["DBZH"]
-    elevations = [0.5, 1.5]
-    azimuths = [361, 361]
-    ranges = [100, 100]
+    data = io.create_synthetic_odim_dataset(odim)
+    io.create_synthetic_odim_file(tmp_local, data)
+    actual = io.read_opera_hdf5(tmp_local)
 
-    data = globals()[name]()
-
-    dsdesc = "dataset{}"
-    mdesc = "data{}"
-
-
-class TestSyntheticOdimVolume04(SyntheticDataVolume):
-    name = "base_odim_data_03"
-    format = "ODIM"
-    volclass = "XRadVolumeOdim"
-    tsclass = "XRadTimeSeriesOdim"
-    momclass = "XRadMomentOdim"
-    volumes = 1
-    sweeps = 2
-    moments = ["DBZH"]
-    elevations = [0.5, 1.5]
-    azimuths = [360, 360]
-    ranges = [100, 100]
-
-    data = globals()[name]()
-
-    dsdesc = "dataset{}"
-    mdesc = "data{}"
-
-
-class TestSyntheticGamicVolume01(SyntheticDataVolume):
-    name = "base_gamic_data"
-    format = "GAMIC"
-    volclass = "XRadVolumeOdim"
-    tsclass = "XRadTimeSeriesOdim"
-    momclass = "XRadMomentGamic"
-    volumes = 1
-    sweeps = 2
-    moments = ["DBZH"]
-    elevations = [0.5, 1.5]
-    azimuths = [360, 360]
-    ranges = [100, 100]
-
-    data = globals()[name]()
-
-    dsdesc = "scan{}"
-    mdesc = "moment_{}"
-
-
-@requires_data
-class TestCfRadial1Volume(MeasuredCfRadial1DataVolume):
-    if has_data:
-        name = "netcdf/cfrad.20080604_002217_000_SPOL_v36_SUR.nc"
-        format = "CfRadial1"
-        volclass = "XRadVolumeCfradial"
-        tsclass = "XRadTimeSeriesOdim"
-        momclass = "XRadMomentCfRadial"
-        volumes = 1
-        sweeps = 9
-        moments = ["DBZ", "VR"]
-        elevations = [
-            0.5, 1.1, 1.8, 2.6, 3.6, 4.7, 6.5, 9.1, 12.8,
-        ]
-        azimuths = [482, 482, 481, 482, 480, 481, 481, 483, 482]
-        ranges = [996] * sweeps
-
-        data = io.read_generic_netcdf(util.get_wradlib_data_file(name))
-
-        #dsdesc = "dataset{}"
-        #mdesc = "data{}"
+    assert data["attrs"] == actual["attrs"]
+    assert data["what"]["attrs"] == actual["what"]
+    assert data["where"]["attrs"] == actual["where"]
+    assert data["dataset1"]["what"]["attrs"] == actual["dataset1/what"]
+    assert data["dataset1"]["where"]["attrs"] == actual["dataset1/where"]
+    np.testing.assert_array_equal(
+        data["dataset1"]["how"]["attrs"]["startazT"], actual["dataset1/how"]["startazT"]
+    )
+    assert data["dataset2"]["what"]["attrs"] == actual["dataset2/what"]
+    assert data["dataset2"]["where"]["attrs"] == actual["dataset2/where"]
+    np.testing.assert_array_equal(
+        data["dataset2"]["how"]["attrs"]["startazT"], actual["dataset2/how"]["startazT"]
+    )
+    assert data["dataset1"]["data1"]["what"]["attrs"] == actual["dataset1/data1/what"]
+    assert data["dataset2"]["data1"]["what"]["attrs"] == actual["dataset2/data1/what"]
+    np.testing.assert_array_equal(
+        data["dataset1"]["data1"]["data"], actual["dataset1/data1/data"]
+    )
+    np.testing.assert_array_equal(
+        data["dataset2"]["data1"]["data"], actual["dataset2/data1/data"]
+    )

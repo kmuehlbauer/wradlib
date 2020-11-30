@@ -41,7 +41,6 @@ else:
     from . import io  # noqa
     from . import ipol  # noqa
     from . import qual  # noqa
-    from . import synthetic  # noqa
     from . import trafo  # noqa
     from . import util  # noqa
     from . import verify  # noqa
