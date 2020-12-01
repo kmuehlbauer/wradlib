@@ -1799,7 +1799,7 @@ class XRadSweepH5(XRadFileAccessMixin, XRadSweep):
 
     def __del__(self):
         if self._data is not None:
-            self._data.close()
+            #self._data.close()
             self._data = None
         self._ncfile = None
 
@@ -2945,11 +2945,11 @@ def _open_odim_sweep(filename, loader, **kwargs):
 
     # open file
     if not isinstance(filename, str):
-        if opener == h5py.File:
-            raise ValueError(
-                "wradlib: file-like objects can't be read using h5py "
-                "loader. Use either 'netcdf4' or 'h5netcdf'."
-            )
+        # if opener == h5py.File:
+        #     raise ValueError(
+        #         "wradlib: file-like objects can't be read using h5py "
+        #         "loader. Use either 'netcdf4' or 'h5netcdf'."
+        #     )
         if opener == nc.Dataset:
             handle = opener(
                 f"{str(filename)}", mode="r", memory=filename.read(), **ld_kwargs

@@ -277,17 +277,13 @@ def get_measured_volume(file, loader, format, fileobj):
 
 
 @contextlib.contextmanager
-def get_synthetic_volume(name, data, get_loader, file_or_filelike, **kwargs):
+def get_synthetic_volume(data, loader, fileobj, **kwargs):
     import tempfile
-    tmp_local = tempfile.NamedTemporaryFile(suffix=".h5", prefix=name).name
-    if "gamic" in name:
-        format = "GAMIC"
-    else:
-        format = "ODIM"
+    tmp_local = tempfile.NamedTemporaryFile(suffix=".h5", prefix=data.name).name
     with h5py.File(str(tmp_local), "w") as f:
-        write_group(f, data)
-    with get_wradlib_data_file(tmp_local, file_or_filelike) as h5file:
-        yield io.xarray.open_odim(h5file, loader=get_loader, flavour=format, **kwargs)
+        io.odim.write_group(f, data.src)
+    with get_wradlib_data_file(tmp_local, fileobj) as h5file:
+        yield io.xarray.open_odim(h5file, loader=loader, flavour=data.format, **kwargs)
 
 
 def base_odim_data_00(src, nrays=360):
@@ -484,6 +480,10 @@ def write_group(grp, data):
 def get_loader(request):
     return request.param
 
+@pytest.fixture(params=["h5py", "h5netcdf"])
+def get_gamic_loader(request):
+    return request.param
+
 
 @pytest.fixture(params=["netcdf4"])
 def get_cfr1_loader(request):
@@ -620,15 +620,15 @@ def check_odim_volume(test, vol, get_loader):
                 assert test.name.split("/")[-1] in swp.filename
             # mixins
             attrs = get_group_attrs(
-                test.data, test.dsdesc.format(i + num), "how"
+                test.src, test.dsdesc.format(i + num), "how"
             )
             np.testing.assert_equal(swp.how, attrs)
             attrs = get_group_attrs(
-                test.data, test.dsdesc.format(i + num), "what"
+                test.src, test.dsdesc.format(i + num), "what"
             )
             assert swp.what == attrs
             attrs = get_group_attrs(
-                test.data, test.dsdesc.format(i + num), "where"
+                test.src, test.dsdesc.format(i + num), "where"
             )
             assert swp.where == attrs
             for k, mom in enumerate(swp):
@@ -642,9 +642,9 @@ def check_odim_volume(test, vol, get_loader):
                 )
                 assert mom.ncpath == ncpath
                 assert mom.ncid == mom.ncfile[mom.ncpath]
-    del mom
-    del ts
-    del swp
+    #del mom
+    #del ts
+    #del swp
 
 
 def create_test_ds(test, i, type=None, cf=0):
@@ -666,19 +666,19 @@ def create_test_ds(test, i, type=None, cf=0):
         return xr.decode_cf(data)
 
 
-def check_odim_volume_data(test, vol, get_loader, cf):
+def check_odim_volume_data(test, vol):
     for i, ts in enumerate(vol):
-        print(test.data)
-        ds = create_test_ds(test.data[f"dataset{i+1}"], i, type=test.format, cf=cf)
-        xr.testing.assert_equal(ts.data, ds.expand_dims("time"))
+        ds = test.trg[i]
+        print("Actual:", ts.data.range)
+        print("Wanted:", ds.range)
+        xr.testing.assert_identical(ts.data.range, ds.range)
+        xr.testing.assert_identical(ts.data.time, ds.time)
+        xr.testing.assert_identical(ts.data, ds)
         for j, swp in enumerate(ts):
-            ds = create_dataset(i)
+            ds = ds.isel(time=j)
             xr.testing.assert_equal(swp.data, ds)
             for k, mom in enumerate(swp):
-                xr.testing.assert_equal(mom.data, ds["DBZH"])
-    del mom
-    del ts
-    del swp
+                xr.testing.assert_equal(mom.data, ds[mom.quantity])
 
 
 class CfRadial1DataVolume:
@@ -699,6 +699,15 @@ class OdimDataVolume:
         gc.collect()
 
 
+@pytest.fixture(params=[dict(decode_coords=False, mask_and_scale=False, decode_times=False),
+                        dict(decode_coords=True, mask_and_scale=False, decode_times=False),
+                        dict(decode_coords=True, mask_and_scale=False, decode_times=True),
+                        dict(decode_coords=True, mask_and_scale=True, decode_times=True),
+                        ])
+def decode_cf(request):
+    return request.param
+
+
 class SyntheticOdimDataVolume:
     def test_volume(self, get_loader, file_or_filelike):
         if get_loader == "h5py" and file_or_filelike == "filelike":
@@ -708,18 +717,19 @@ class SyntheticOdimDataVolume:
         del vol
         gc.collect()
 
-    def test_volume_data(self, get_loader, file_or_filelike):
+    def test_volume_data(self, get_loader, file_or_filelike, decode_cf):
         if get_loader == "h5py" and file_or_filelike == "filelike":
             pytest.skip("file_like needs 'h5netcdf' or 'netcdf4'")
         with self.get_volume_data(get_loader,
                                   file_or_filelike,
-                                  decode_coords=False,
-                                  mask_and_scale=False,
-                                  decode_times=False,
+                                  #decode_coords=False,
+                                  #mask_and_scale=False,
+                                  #decode_times=False,
                                   chunks=None,
                                   parallel=False,
+                                  **decode_cf
                                   ) as vol:
-            check_odim_volume_data(self, vol, get_loader, cf=0)
+            check_odim_volume_data(self, vol)
         del vol
         gc.collect()
 
@@ -1222,27 +1232,28 @@ class MeasuredCfRadial1DataVolume(CfRadial1DataVolume):
 class SyntheticDataVolume(SyntheticOdimDataVolume):
     @contextlib.contextmanager
     def get_volume_data(self, loader, fileobj, **kwargs):
-        self.data = self.get_synthetic_data()
-        with get_synthetic_volume(self.name, self.data, loader, fileobj, **kwargs) as vol:
+        print(loader, fileobj)
+        self.src = self.get_synthetic_data()
+        print(self.src)
+        self.trg = self.get_synthetic_ds(**kwargs)
+        print("KWARGS:", kwargs)
+        with get_synthetic_volume(self, loader, fileobj, **kwargs) as vol:
             yield vol
 
     # todo: add function which creates xarray datasets per root and sweeps
     def get_synthetic_data(self):
-        odim = dict(root=dict(
-            where=dict(height=self.height, lon=self.lon, lat=self.lat),
-            what=dict(version=self.version),
-            attrs=dict(Conventions=np.array(b"ODIM_H5/V2_0", dtype="|S13")),
-        ))
+        if self.format == "ODIM":
+            return io.create_synthetic_odim_volume(self)
+        else:
+            return io.create_synthetic_gamic_volume(self)
 
-        for swp in range(self.sweeps):
-            dset = io.create_odim_sweep_dset(self.moments,
-                                             self.start_time + swp * self.time_diff,
-                                             self.stop_time + swp * self.time_diff,
-                                             elangle=self.elevations[swp])
-            odim.update({f"dataset{swp + 1}": dset})
+    def get_synthetic_ds(self, **kwargs):
+        if self.format == "ODIM":
+            return io.create_synthetic_xarray_volume(self.src, **kwargs)
+        else:
+            return io.create_synthetic_xarray_volume(self.src, **kwargs)
+        pass
 
-        data = io.create_synthetic_odim_dataset(odim)
-        return data
 
 @requires_data
 class TestKNMIVolume(MeasuredDataVolume):
@@ -1331,6 +1342,7 @@ class TestSyntheticOdimVolume01(SyntheticDataVolume):
     lon = 7.071624
     lat = 50.730599
     version = "9"
+    conv = np.array(b"ODIM_H5/V2_0", dtype="|S13")
     start_time = dt.datetime(2011, 6, 10, 10, 10, 10)
     stop_time = start_time + dt.timedelta(seconds=50)
     time_diff = dt.timedelta(minutes=1)
@@ -1395,23 +1407,27 @@ class TestSyntheticOdimVolume01(SyntheticDataVolume):
 #     mdesc = "data{}"
 #
 #
-# class TestSyntheticGamicVolume01(SyntheticDataVolume):
-#     name = "base_gamic_data"
-#     format = "GAMIC"
-#     volclass = "XRadVolumeOdim"
-#     tsclass = "XRadTimeSeriesOdim"
-#     momclass = "XRadMomentGamic"
-#     volumes = 1
-#     sweeps = 2
-#     moments = ["DBZH"]
-#     elevations = [0.5, 1.5]
-#     azimuths = [360, 360]
-#     ranges = [100, 100]
-#
-#     data = globals()[name]()
-#
-#     dsdesc = "scan{}"
-#     mdesc = "moment_{}"
+class TestSyntheticGamicVolume01(SyntheticDataVolume):
+    name = "base_gamic_data"
+    format = "GAMIC"
+    volclass = "XRadVolumeOdim"
+    tsclass = "XRadTimeSeriesOdim"
+    momclass = "XRadMomentGamic"
+    volumes = 1
+    sweeps = 2
+    moments = ["DBZH", "DBZV"]
+    elevations = [0.5, 1.5]
+    azimuths = [360, 360]
+    ranges = [100, 100]
+    height = 99.5
+    lon = 7.071624
+    lat = 50.730599
+    version = "9"
+    start_time = dt.datetime(2011, 6, 10, 10, 10, 10)
+    stop_time = start_time + dt.timedelta(seconds=50)
+    time_diff = dt.timedelta(minutes=1)
+    dsdesc = "scan{}"
+    mdesc = "moment_{}"
 #
 #
 # @requires_data
@@ -1436,6 +1452,7 @@ class TestSyntheticOdimVolume01(SyntheticDataVolume):
 #         #dsdesc = "dataset{}"
 #         #mdesc = "data{}"
 #
+
 
 def test_create_synthetic_odim_file():
     tmp_local = tempfile.NamedTemporaryFile(suffix=".h5", prefix="test").name
