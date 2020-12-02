@@ -979,5 +979,35 @@ def _open_file(name):
         yield name
 
 
+def find_key(key, dictionary):
+    """Searches for given key in given (nested) dictionary.
+
+    Returns all found parent dictionaries in a list.
+
+    Parameters
+    ----------
+    key : string
+        the key to be searched for in the nested dict
+    dictionary : dict
+        the dictionary to be searched
+
+    Returns
+    -------
+    output : dict
+        a dictionary or list of dictionaries
+    """
+    for k, v in dictionary.items():
+        if k == key:
+            yield dictionary
+        elif isinstance(v, dict):
+            for result in find_key(key, v):
+                yield result
+        elif isinstance(v, list):
+            for d in v:
+                if isinstance(d, dict):
+                    for result in find_key(key, d):
+                        yield result
+
+
 if __name__ == "__main__":
     print("wradlib: Calling module <util> as main...")

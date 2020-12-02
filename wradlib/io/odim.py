@@ -11,7 +11,8 @@ __all__ = [
     "create_synthetic_odim_file",
     "create_synthetic_gamic_volume",
     "create_synthetic_odim_volume",
-    "create_synthetic_xarray_volume"
+    "create_synthetic_gamic_xarray_volume",
+    "create_synthetic_odim_xarray_volume"
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
@@ -19,7 +20,7 @@ import h5py
 import numpy as np
 
 import xarray as xr
-import dateparser
+import dateutil
 import datetime as dt
 
 import wradlib.io as io
@@ -187,14 +188,16 @@ def create_data(nrays=360, seed=42):
 
 
 def create_odim_sweep_dset(moments, start, stop, a1gate=0, elangle=0, nrays=360,
-                           nbins=100, rstart=0, rscale=1000, seed=42):
+                           nbins=100, rstart=0, rscale=1000, seed=42, v=0):
+
     dset = dict(where=create_odim_dset_where(a1gate=a1gate, elangle=elangle,
                                              nrays=nrays, nbins=nbins,
                                              rstart=rstart, rscale=rscale),
                 what=create_odim_dset_what(start, stop),
-                how=create_odim_dset_how(start, stop, nrays=nrays, a1gate=a1gate,
-                                         elangle=elangle),
                 )
+    if v:
+        dset.update(how=create_odim_dset_how(start, stop, nrays=nrays, a1gate=a1gate,
+                                         elangle=elangle))
     for i, mom in enumerate(moments):
         dset.update({f"data{i+1}": create_odim_moment_dset(mom, nrays, seed=seed)})
 
@@ -217,7 +220,7 @@ def create_gamic_sweep_dset(moments, start, stop, a1gate=0, elangle=0, nrays=360
     return dset
 
 
-def create_synthetic_odim_volume(src):
+def create_synthetic_odim_volume(src, v=0):
     odim = dict(where=dict(height=src.height, lon=src.lon, lat=src.lat),
                 what=dict(version=src.version),
                 Conventions=src.conv,
@@ -227,7 +230,7 @@ def create_synthetic_odim_volume(src):
         dset = create_odim_sweep_dset(src.moments,
                                       src.start_time + swp * src.time_diff,
                                       src.stop_time + swp * src.time_diff,
-                                      elangle=src.elevations[swp])
+                                      elangle=src.elevations[swp], v=v)
         odim.update({f"dataset{swp + 1}": dset})
 
     #data = create_synthetic_odim_dataset(odim)
@@ -249,7 +252,7 @@ def create_synthetic_gamic_volume(src):
     return gamic
 
 
-def create_synthetic_xarray_volume(src, **kwargs):
+def create_synthetic_odim_xarray_volume(src, **kwargs):
     chunks = kwargs.pop("chunks", None)
     decode_coords = kwargs.get("decode_coords", False)
     decode_times = kwargs.get("decode_times", False)
@@ -283,35 +286,60 @@ def create_synthetic_xarray_volume(src, **kwargs):
             ds = ds.assign_coords(dict(sweep_mode="azimuth_surveillance"))
             start_date = value["what"]["startdate"].item()
             start_time = value["what"]["starttime"].item()
-
-            start = dateparser.parse(start_date.decode() + start_time.decode())
-
+            start = dateutil.parser.parse(start_date + start_time)
+            end_date = value["what"]["enddate"].item()
+            end_time = value["what"]["endtime"].item()
+            start = dateutil.parser.parse(start_date + start_time)
+            end = dateutil.parser.parse(end_date + end_time)
             da = xr.DataArray([start.replace(tzinfo=dt.timezone.utc).timestamp()], dims=["time"])
             ds = ds.assign(dict(time=da))
             ds["time"].attrs = io.xarray.time_attrs
 
-            startazA = value["how"]["startazA"]
-            stopazA = value["how"]["stopazA"]
+            nrays = value["where"]["nrays"]
 
-            ds = ds.assign_coords(dict(azimuth=((startazA + stopazA) / 2.).astype("float32")))
-            ds["azimuth"].attrs = io.xarray.az_attrs
+            if value.get("how", False):
+                startazA = value["how"]["startazA"]
+                stopazA = value["how"]["stopazA"]
+                ds = ds.assign_coords(dict(azimuth=((startazA + stopazA) / 2.).astype("float32")))
+                ds["azimuth"].attrs = io.xarray.az_attrs
 
-            startelA = value["how"]["startelA"]
-            stopelA = value["how"]["stopelA"]
-            da = xr.DataArray(((startelA + stopelA) / 2.).astype("float32"), dims=["azimuth"],
-                              attrs=io.xarray.el_attrs)
+                startelA = value["how"]["startelA"]
+                stopelA = value["how"]["stopelA"]
+                da = xr.DataArray(((startelA + stopelA) / 2.).astype("float32"), dims=["azimuth"],
+                                  attrs=io.xarray.el_attrs)
 
-            ds = ds.assign_coords(dict(elevation=da))
-            # coords["elevation"].attrs = wrl.io.xarray.el_attrs
+                ds = ds.assign_coords(dict(elevation=da))
 
-            startazT = value["how"]["startazT"]
-            stopazT = value["how"]["stopazT"]
+                startazT = value["how"]["startazT"]
+                stopazT = value["how"]["stopazT"]
 
-            da = xr.DataArray(((startazT + stopazT) / 2.), dims=["azimuth"])
-            ds = ds.assign_coords(dict(rtime=da))
-            ds["rtime"].attrs = io.xarray.time_attrs
+                da = xr.DataArray(((startazT + stopazT) / 2.), dims=["azimuth"])
+                ds = ds.assign_coords(dict(rtime=da))
+                ds["rtime"].attrs = io.xarray.time_attrs
+            else:
+                res = 360.0 / nrays
+                azimuth_data = np.arange(res / 2.0, 360.0, res, dtype="float32")
+                ds = ds.assign_coords(
+                    dict(azimuth=azimuth_data))
+                ds["azimuth"].attrs = io.xarray.az_attrs
+                elangle = value["where"]["elangle"]
+                elevation_data = np.ones(nrays, dtype="float32") * elangle
+                da = xr.DataArray(elevation_data,
+                                  dims=["azimuth"],
+                                  attrs=io.xarray.el_attrs)
 
-            ngates = value["where"]["nbins"].item()
+                ds = ds.assign_coords(dict(elevation=da))
+                start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+                end = end.replace(tzinfo=dt.timezone.utc).timestamp()
+                delta = (end - start) / nrays
+                time_data = np.arange(start + delta / 2.0, end, delta)
+                # todo: fix a1gate
+                #time_data = np.roll(time_data)#, shift=+self.a1gate)
+                da = xr.DataArray(time_data, dims=["azimuth"])
+                ds = ds.assign_coords(dict(rtime=da))
+                ds["rtime"].attrs = io.xarray.time_attrs
+
+            ngates = value["where"]["nbins"]
             range_start = value["where"]["rstart"].item() * 1000.0
             bin_range = value["where"]["rscale"].item()
             cent_first = range_start + bin_range / 2.0
@@ -322,62 +350,99 @@ def create_synthetic_xarray_volume(src, **kwargs):
             range_attrs["meters_to_center_of_first_gate"] = cent_first
             range_attrs["meters_between_gates"] = bin_range
             da = xr.DataArray(range_data, dims=["range"], attrs=range_attrs)
-            print("DAAAA:", da)
             ds = ds.assign_coords(dict(range=da))
             ds["range"].attrs = range_attrs
-            print("dDSSS:", ds.range)
 
         ds = xr.decode_cf(ds, **kwargs)
         ds_list.append(ds)
     return ds_list
 
 
-# def create_synthetic_odim_dataset(obj):
-#     odim = {}
-#     for k, v in obj.items():
-#         if k == "root":
-#             for k1, v1 in v.items():
-#                 if "attrs" not in k1:
-#                     odim[k1] = {}
-#                     if v1:
-#                         odim[k1]["attrs"] = v1
-#                 else:
-#                     odim[k1] = v1
-#         else:
-#             sub = {}
-#             for k2, v2 in v.items():
-#                 if "data" not in k2:
-#                     sub[k2] = {}
-#                     if v2:
-#                         sub[k2]["attrs"] = v2
-#                 else:
-#                     sub[k2] = v2
-#             odim[k] = sub
-#     return odim
-#
-#
-# def create_synthetic_gamic_dataset(obj):
-#     gamic = {}
-#     for k, v in obj.items():
-#         if k == "root":
-#             for k1, v1 in v.items():
-#                 if "attrs" not in k1:
-#                     gamic[k1] = {}
-#                     if v1:
-#                         gamic[k1]["attrs"] = v1
-#                 else:
-#                     gamic[k1] = v1
-#         else:
-#             sub = {}
-#             for k2, v2 in v.items():
-#                 if "moment" in k2 or "header" in k2:
-#                     sub[k2] = v2
-#                 else:
-#                     sub[k2] = {}
-#                     if v2:
-#                         sub[k2]["attrs"] = v2
-#             gamic[k] = sub
-#     return gamic
+def create_synthetic_gamic_xarray_volume(src, **kwargs):
+    chunks = kwargs.pop("chunks", None)
+    decode_coords = kwargs.get("decode_coords", False)
+    decode_times = kwargs.get("decode_times", False)
+    kwargs.pop("parallel", False)
+    # site coords
+    ds_list = []
+    for dataset, value in src.items():
+        if "scan" not in dataset:
+            continue
+        ds = xr.Dataset()
+        for k, v in value.items():
+            if "moment" in k:
+                dmax = np.iinfo(v["data"].dtype).max
+                dmin = np.iinfo(v["data"].dtype).min
+                minval = v["dyn_range_min"]
+                maxval = v["dyn_range_max"]
+                gain = (maxval - minval) / dmax
+                undetect = float(dmin)
+                attrs = {}
+                attrs["scale_factor"] = gain
+                attrs["add_offset"] = minval
+                attrs["_FillValue"] = float(dmax)
+                attrs["_Undetect"] = undetect
+
+                name = v["moment"].decode().lower()
+                quantity = io.xarray.GAMIC_NAMES[name]
+
+                mapping = io.xarray.moments_mapping[quantity]
+                attrs.update({key: mapping[key] for key in io.xarray.moment_attrs})
+                dat = v["data"]
+                if decode_coords:
+                    attrs["coordinates"] = "elevation azimuth range"
+                da = xr.DataArray(dat[None, ...], dims=["time", "azimuth", "range"],
+                                  attrs=attrs)
+                ds = ds.assign({quantity: da})
+        if decode_coords:
+
+            ds = ds.assign_coords(src["where"])
+            ds = ds.rename(
+                {"height": "altitude", "lon": "longitude", "lat": "latitude"})
+            ds = ds.assign_coords(dict(sweep_mode="azimuth_surveillance"))
+            start_date = value["how"]["timestamp"]
+            start = dateutil.parser.parse(start_date)
+            da = xr.DataArray([start.replace(tzinfo=dt.timezone.utc).timestamp()], dims=["time"])
+            ds = ds.assign(dict(time=da))
+            ds["time"].attrs = io.xarray.time_attrs
+
+            ray_header = value["ray_header"]
+            startazA = ray_header["azimuth_start"]
+            stopazA = ray_header["azimuth_stop"]
+
+            ds = ds.assign_coords(dict(azimuth=((startazA + stopazA) / 2.).astype("float32")))
+            ds["azimuth"].attrs = io.xarray.az_attrs
+
+
+            startelA = ray_header["elevation_start"]
+            stopelA = ray_header["elevation_stop"]
+            da = xr.DataArray(((startelA + stopelA) / 2.).astype("float32"), dims=["azimuth"],
+                              attrs=io.xarray.el_attrs)
+
+            ds = ds.assign_coords(dict(elevation=da))
+
+            times = ray_header["timestamp"] / 1e6
+
+            da = xr.DataArray(times, dims=["azimuth"])
+            ds = ds.assign_coords(dict(rtime=da))
+            ds["rtime"].attrs = io.xarray.time_attrs
+
+            range_samples = value["how"]["range_samples"]
+            range_step = value["how"]["range_step"]
+            bin_range = range_step * range_samples
+            ngates = value["how"]["bin_count"]
+            range_data = np.arange(
+                bin_range / 2.0, bin_range * ngates, bin_range, dtype="float32"
+            )
+            range_attrs = io.xarray.range_attrs.copy()
+            range_attrs["meters_to_center_of_first_gate"] = bin_range / 2.0
+            da = xr.DataArray(range_data, dims=["range"], attrs=range_attrs)
+            ds = ds.assign_coords(dict(range=da))
+            ds["range"].attrs = range_attrs
+
+        ds = xr.decode_cf(ds, **kwargs)
+        ds_list.append(ds)
+    return ds_list
 
 
 def create_synthetic_odim_file(tmp_local, data):
