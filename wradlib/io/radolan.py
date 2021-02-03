@@ -822,6 +822,8 @@ def read_radolan_composite(f, missing=-9999, loaddata=True, fillmissing=False):
 
     if loaddata == "xarray":
         arr = radolan_to_xarray(arr, attrs)
+    elif loaddata == "backend":
+        pass
     else:
         # apply precision factor
         # this promotes arr to float if precision is float
@@ -936,7 +938,7 @@ radolan = {
         "unit": "dBZ",
     },
     "RR": {
-        "add_offset": np.float(0),
+        "add_offset": np.float32(0),
         "valid_min": np.int32(0),
         "valid_max": np.int32(4095),
         "_FillValue": np.int32(65535),
@@ -945,7 +947,7 @@ radolan = {
         "unit": "mm h-1",
     },
     "RA": {
-        "add_offset": np.float(0),
+        "add_offset": np.float32(0),
         "valid_min": np.int32(0),
         "valid_max": np.int32(4095),
         "_FillValue": np.int32(65535),
@@ -959,3 +961,6 @@ radolan = {
         "_FillValue": np.int32(255),
     },
 }
+
+
+

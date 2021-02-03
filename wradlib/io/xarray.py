@@ -101,7 +101,7 @@ import h5py
 import netCDF4 as nc
 import numpy as np
 import xarray as xr
-from xarray.backends.api import _MultiFileCloser, combine_by_coords
+from xarray.backends.api import combine_by_coords
 
 from wradlib import version
 from wradlib.georef import xarray
@@ -492,7 +492,7 @@ global_attrs = [
 
 global_variables = dict(
     [
-        ("volume_number", np.int),
+        ("volume_number", int),
         ("platform_type", "fixed"),
         ("instrument_type", "radar"),
         ("primary_axis", "axis_z"),
@@ -1158,7 +1158,10 @@ def _open_mfmoments(
             for f, p in zip(fileid, moments)
         ]
 
-    file_objs = [getattr_(ds, "_file_obj") for ds in datasets]
+    if LooseVersion(xr.__version__) > LooseVersion("0.16.2"):
+        closers = [getattr_(ds, "_close") for ds in datasets]
+    else:
+        file_objs = [getattr_(ds, "_file_obj") for ds in datasets]
 
     # check for differences in shape of moments
     non_uniform_shape = len(set([tuple(ds.sizes.values()) for ds in datasets])) > 1
@@ -1170,7 +1173,7 @@ def _open_mfmoments(
     if parallel:
         # calling compute here will return the datasets/file_objs lists,
         # the underlying datasets will still be stored as dask arrays
-        datasets, file_objs = dask.compute(datasets, file_objs)
+        datasets, closers = dask.compute(datasets, closers)
 
     # Combine all datasets, closing them in case of a ValueError
     try:
@@ -1182,7 +1185,15 @@ def _open_mfmoments(
             ds.close()
         raise
 
-    combined._file_obj = _MultiFileCloser(file_objs)
+    if LooseVersion(xr.__version__) > LooseVersion("0.16.2"):
+        def multi_file_closer():
+            for closer in closers:
+                closer()
+        combined.set_close(multi_file_closer)
+    else:
+        from xarray.backends.api import _MultiFileCloser
+        combined._file_obj = _MultiFileCloser(closers)
+
     combined.attrs = datasets[0].attrs
     return combined
 
@@ -2003,14 +2014,18 @@ class XRadSweepGamic(XRadSweep):
             store = xr.backends.NetCDF4DataStore
 
         if os.path.isfile(self.filename):
-            ds0 = opener(self.filename, "r", **opener_kwargs)
+            #ds0 = opener(self.filename, "r", **opener_kwargs)
+            ds0 = self.filename
         else:
             ds0 = self.ncfile
 
         ds = xr.open_dataset(
-            store(ds0, self.ncpath, lock=None, autoclose=None),
+            ds0,
+            #store(ds0, self.ncpath, lock=None, autoclose=None),
+            group=self.ncpath,
             engine=self.engine,
             chunks=self.chunks,
+            backend_kwargs=opener_kwargs,
         )
         ds = ds.drop_vars("ray_header", errors="ignore")
         for mom in self:

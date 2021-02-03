@@ -340,7 +340,7 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
     >>> import numpy as np
     >>> from matplotlib import collections
     >>> import matplotlib.pyplot as pl
-    >>> #pl.interactive(True)
+    >>> pl.interactive(True)
     >>> # define the polar coordinates and the site coordinates in lat/lon
     >>> r = np.array([50., 100., 150., 200.]) * 1000
     >>> # _check_polar_coords fails in next line

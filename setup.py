@@ -191,6 +191,8 @@ def setup_package():
         install_requires=INSTALL_REQUIRES,
         extras_require={"dev": DEVEL_REQUIRES},
         packages=find_packages(),
+        entry_points={"xarray.backends": ["radolan = wradlib.io:RadolanBackendEntrypoint",
+                                          "odim = wradlib.io:OdimH5BackendEntrypoint"]},
     )
 
     setup(**metadata)
