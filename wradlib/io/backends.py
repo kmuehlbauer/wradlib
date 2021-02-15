@@ -13,40 +13,38 @@ Reading radar data into xarray Datasets using xr.open_dataset
 
    {}
 """
-__all__ = ["RadolanBackendEntrypoint", "OdimH5BackendEntrypoint",
+__all__ = ["RadolanBackendEntrypoint", "OdimBackendEntrypoint",
            "GamicBackendEntrypoint"]
 
 __doc__ = __doc__.format("\n   ".join(__all__))
 
-import functools
-import io
 import os
-from distutils.version import LooseVersion
 
 import datetime as dt
 import numpy as np
 
-from xarray import decode_cf, Dataset, DataArray
+from xarray import decode_cf, merge
 from xarray.core import indexing
-from xarray.core.utils import Frozen, FrozenDict, close_on_error, is_remote_uri, read_magic_number
+from xarray.core.utils import Frozen, FrozenDict, close_on_error, read_magic_number
 from xarray.core.variable import Variable
 from xarray.backends import H5NetCDFStore
 from xarray.backends.common import (
     AbstractDataStore,
     BackendArray,
     BackendEntrypoint,
-    WritableCFDataStore,
-    find_root_and_group,
 )
-from xarray.backends.file_manager import CachingFileManager, DummyFileManager
-from xarray.backends.locks import HDF5_LOCK, combine_locks, ensure_lock, get_write_lock
 from xarray.backends.netCDF4_ import (
     BaseNetCDF4Array,
-    _encode_nc4_variable,
-    _extract_nc4_variable_encoding,
-    _get_datatype,
-    _nc4_require_group,
+    _nc4_require_group
 )
+
+from xarray.backends.h5netcdf_ import (
+    _read_attributes,
+    maybe_decode_bytes,
+    _h5netcdf_create_group,
+    H5NetCDFArrayWrapper,
+)
+
 from xarray.backends.locks import SerializableLock, ensure_lock
 from xarray.backends.store import StoreBackendEntrypoint
 
@@ -361,6 +359,8 @@ class OdimH5BackendEntrypoint(BackendEntrypoint):
         lock=None,
         invalid_netcdf=None,
         phony_dims=None,
+        keep_azimuth=None,
+        keep_elevation=None,
     ):
 
         store = H5NetCDFStore.open(
@@ -446,161 +446,55 @@ class OdimH5BackendEntrypoint(BackendEntrypoint):
         return ds
 
 
-class GamicArrayWrapper(BaseNetCDF4Array):
-    def get_array(self, needs_lock=True):
-        ds = self.datastore._acquire(needs_lock)
-        variable = ds.variables[self.variable_name]
-        return variable
+# class OdimArrayWrapper(BaseNetCDF4Array):
+#     def get_array(self, needs_lock=True):
+#         ds = self.datastore._acquire(needs_lock)
+#         variable = ds.variables[self.variable_name]
+#         return variable
+#
+#     def __getitem__(self, key):
+#         return indexing.explicit_indexing_adapter(
+#             key, self.shape, indexing.IndexingSupport.OUTER_1VECTOR, self._getitem
+#         )
+#
+#     def _getitem(self, key):
+#         # h5py requires using lists for fancy indexing:
+#         # https://github.com/h5py/h5py/issues/992
+#         key = tuple(list(k) if isinstance(k, np.ndarray) else k for k in key)
+#         with self.datastore.lock:
+#             array = self.get_array(needs_lock=False)
+#             return array[key]
 
-    def __getitem__(self, key):
-        return indexing.explicit_indexing_adapter(
-            key, self.shape, indexing.IndexingSupport.OUTER_1VECTOR, self._getitem
-        )
+class OdimStore(H5NetCDFStore):
+    """Store for reading and writing GAMIC data via h5netcdf"""
 
-    def _getitem(self, key):
-        # h5py requires using lists for fancy indexing:
-        # https://github.com/h5py/h5py/issues/992
-        key = tuple(list(k) if isinstance(k, np.ndarray) else k for k in key)
-        with self.datastore.lock:
-            array = self.get_array(needs_lock=False)
-            return array[key]
+    def _get_fixed_dim_and_angle(self):
+        with self._manager.acquire_context(False) as root:
+            grp = self._group.split("/")[0]
+            dim = "elevation"
 
-
-def maybe_decode_bytes(txt):
-    if isinstance(txt, bytes):
-        return txt.decode("utf-8")
-    else:
-        return txt
-
-
-def _read_attributes(h5netcdf_var):
-    # GH451
-    # to ensure conventions decoding works properly on Python 3, decode all
-    # bytes attributes to strings
-    attrs = {}
-    for k, v in h5netcdf_var.attrs.items():
-        if k not in ["_FillValue", "missing_value"]:
-            v = maybe_decode_bytes(v)
-        attrs[k] = v
-    return attrs
-
-
-_extract_h5nc_encoding = functools.partial(
-    _extract_nc4_variable_encoding, lsd_okay=False, h5py_okay=True, backend="h5netcdf"
-)
-
-
-def _h5netcdf_create_group(dataset, name):
-    return dataset.create_group(name)
-
-
-class GamicStore(WritableCFDataStore):
-    """Store for reading and writing data via h5netcdf"""
-
-    __slots__ = (
-        "autoclose",
-        "format",
-        "is_remote",
-        "lock",
-        "_filename",
-        "_group",
-        "_manager",
-        "_mode",
-    )
-
-    def __init__(self, manager, group=None, mode=None, lock=HDF5_LOCK, autoclose=False):
-
-        if isinstance(manager, (h5netcdf.File, h5netcdf.Group)):
-            if group is None:
-                root, group = find_root_and_group(manager)
+            # try RHI first
+            angle_keys = ["az_angle", "azangle"]
+            for ak in angle_keys:
+               angle = root[grp]["where"].attrs.get(ak, None)
+               if angle is not None:
+                   break
+            if angle is not None:
+               angle = np.round(angle, decimals=1)
             else:
-                if not type(manager) is h5netcdf.File:
-                    raise ValueError(
-                        "must supply a h5netcdf.File if the group "
-                        "argument is provided"
-                    )
-                root = manager
-            manager = DummyFileManager(root)
+               dim = "azimuth"
+               angle = np.round(root[grp]["where"].attrs["elangle"], decimals=1)
 
-        self._manager = manager
-        self._group = group
-        self._mode = mode
-        self.format = None
-        # todo: utilizing find_root_and_group seems a bit clunky
-        #  making filename available on h5netcdf.Group seems better
-        self._filename = find_root_and_group(self.ds)[0].filename
-        self.is_remote = is_remote_uri(self._filename)
-        self.lock = ensure_lock(lock)
-        self.autoclose = autoclose
+        return dim, angle
 
-    @classmethod
-    def open(
-        cls,
-        filename,
-        mode="r",
-        format=None,
-        group=None,
-        lock=None,
-        autoclose=False,
-        invalid_netcdf=None,
-        phony_dims=None,
-        decode_vlen_strings=None,
-    ):
-
-        if isinstance(filename, bytes):
-            raise ValueError(
-                "can't open netCDF4/HDF5 as bytes "
-                "try passing a path or file-like object"
-            )
-        elif isinstance(filename, io.IOBase):
-            magic_number = read_magic_number(filename)
-            if not magic_number.startswith(b"\211HDF\r\n\032\n"):
-                raise ValueError(
-                    f"{magic_number} is not the signature of a valid netCDF file"
-                )
-
-        if format not in [None, "NETCDF4"]:
-            raise ValueError("invalid format for h5netcdf backend")
-
-        kwargs = {"invalid_netcdf": invalid_netcdf}
-        if phony_dims is not None:
-            if LooseVersion(h5netcdf.__version__) >= LooseVersion("0.8.0"):
-                kwargs["phony_dims"] = phony_dims
-            else:
-                raise ValueError(
-                    "h5netcdf backend keyword argument 'phony_dims' needs "
-                    "h5netcdf >= 0.8.0."
-                )
-        if LooseVersion(h5netcdf.__version__) >= LooseVersion(
-            "0.10.0"
-        ) and LooseVersion(h5netcdf.core.h5py.__version__) >= LooseVersion("3.0.0"):
-            kwargs["decode_vlen_strings"] = decode_vlen_strings
-
-        if lock is None:
-            if mode == "r":
-                lock = HDF5_LOCK
-            else:
-                lock = combine_locks([HDF5_LOCK, get_write_lock(filename)])
-
-        manager = CachingFileManager(h5netcdf.File, filename, mode=mode, kwargs=kwargs)
-        return cls(manager, group=group, mode=mode, lock=lock, autoclose=autoclose)
-
-    def _acquire(self, needs_lock=True):
-        with self._manager.acquire_context(needs_lock) as root:
-            ds = _nc4_require_group(
-                root, self._group, self._mode, create_group=_h5netcdf_create_group
-            )
-        return ds
-
-
-    @property
-    def ds(self):
-        return self._acquire()
-
-    def open_store_variable(self, name, var):
+    def open_store_variable(self, group, name, var):
         import h5py
 
         print("Manager:", self._manager)
+
+        with self._manager.acquire_context(False) as root:
+            print(root[group])
+            print(root[group]["what"])
 
 
         dims = var.dimensions
@@ -613,7 +507,380 @@ class GamicStore(WritableCFDataStore):
             else:
                 pass
         dimensions = tuple(dimensions)
-        data = indexing.LazilyOuterIndexedArray(GamicArrayWrapper(name, self))
+        data = indexing.LazilyOuterIndexedArray(H5NetCDFArrayWrapper(name, self))
+        attrs = _read_attributes(var)
+
+        # netCDF4 specific encoding
+        encoding = {
+            "chunksizes": var.chunks,
+            "fletcher32": var.fletcher32,
+            "shuffle": var.shuffle,
+        }
+        # Convert h5py-style compression options to NetCDF4-Python
+        # style, if possible
+        if var.compression == "gzip":
+            encoding["zlib"] = True
+            encoding["complevel"] = var.compression_opts
+        elif var.compression is not None:
+            encoding["compression"] = var.compression
+            encoding["compression_opts"] = var.compression_opts
+
+        # save source so __repr__ can detect if it's local or not
+        encoding["source"] = self._filename
+        encoding["original_shape"] = var.shape
+
+        vlen_dtype = h5py.check_dtype(vlen=var.dtype)
+        if vlen_dtype is str:
+            encoding["dtype"] = str
+        elif vlen_dtype is not None:  # pragma: no cover
+            # xarray doesn't support writing arbitrary vlen dtypes yet.
+            pass
+        else:
+            encoding["dtype"] = var.dtype
+
+        variables = {}
+        # cheat attributes
+        if "data" in name:
+            encoding["group"] = group
+
+            with self._manager.acquire_context(False) as root:
+                attrs = {}
+                attrs["scale_factor"] = root[group]["what"].attrs["gain"]
+                attrs["add_offset"] = root[group]["what"].attrs["offset"]
+                attrs["_FillValue"] = root[group]["what"].attrs["nodata"]
+                attrs["_Undetect"] = root[group]["what"].attrs["undetect"]
+                name = maybe_decode_bytes(root[group]["what"].attrs["quantity"])
+
+            # handle non-standard moment names
+            try:
+                mapping = moments_mapping[name]
+            except KeyError:
+                pass
+            else:
+                from .xarray import moment_attrs
+                attrs.update({key: mapping[key] for key in moment_attrs})
+
+            variables[name] = Variable(dimensions, data, attrs, encoding)
+
+        # add coordinate
+        def _get_azimuth_how(self):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+                startaz = root[grp]["how"].attrs["startazA"]
+                stopaz = root[grp]["how"].attrs["stopazA"]
+                zero_index = np.where(stopaz < startaz)
+                stopaz[zero_index[0]] += 360
+                azimuth_data = (startaz + stopaz) / 2.0
+            return azimuth_data
+
+        def _get_azimuth_where(self):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+                nrays = root[grp]["where"].attrs["nrays"]
+                res = 360.0 / nrays
+                azimuth_data = np.arange(res / 2.0, 360.0, res, dtype="float32")
+            return azimuth_data
+
+        try:
+            azimuth = _get_azimuth_how(self)
+        except (AttributeError, KeyError, TypeError):
+            azimuth = _get_azimuth_where(self)
+
+        # add coordinate
+        def _get_elevation_how(self):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+                startaz = root[grp]["how"].attrs["startelA"]
+                stopaz = root[grp]["how"].attrs["stopelA"]
+                elevation_data = (startaz + stopaz) / 2.0
+            return elevation_data
+
+        def _get_elevation_where(self):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+                nrays = root[grp]["where"].attrs["nrays"]
+                elangle = root[grp]["where"].attrs["elangle"]
+                elevation_data = np.ones(nrays, dtype="float32") * elangle
+            return elevation_data
+
+        def _get_time_how(self):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+                startT = root[grp]["how"].attrs["startazT"]
+                stopT = root[grp]["how"].attrs["stopazT"]
+                time_data = (startT + stopT) / 2.0
+            return time_data
+
+        def _get_time_what(self, nrays=None):
+            with self._manager.acquire_context(False) as root:
+                grp = self._group.split("/")[0]
+            what = root[grp]["how"].attrs
+            startdate = what["startdate"]
+            starttime = what["starttime"]
+            enddate = what["enddate"]
+            endtime = what["endtime"]
+            start = dt.datetime.strptime(startdate + starttime, "%Y%m%d%H%M%S")
+            end = dt.datetime.strptime(enddate + endtime, "%Y%m%d%H%M%S")
+            start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+            end = end.replace(tzinfo=dt.timezone.utc).timestamp()
+            if nrays is None:
+                nrays = root[grp]["where"]["nrays"]
+            if start == end:
+                import warnings
+                warnings.warn(
+                    "WRADLIB: Equal ODIM `starttime` and `endtime` "
+                    "values. Can't determine correct sweep start-, "
+                    "end- and raytimes.",
+                    UserWarning,
+                )
+
+                time_data = np.ones(nrays) * start
+            else:
+                delta = (end - start) / nrays
+                time_data = np.arange(start + delta / 2.0, end, delta)
+                time_data = np.roll(time_data, shift=+self.a1gate)
+            return time_data
+
+        def _get_ray_times(self, nrays=None):
+
+            try:
+                time_data = _get_time_how(self)
+                self._need_time_recalc = False
+            except (AttributeError, KeyError, TypeError):
+                time_data = _get_time_what(self, nrays=nrays)
+                self._need_time_recalc = True
+            return time_data
+
+        try:
+            elevation = _get_elevation_how(self)
+        except (AttributeError, KeyError, TypeError):
+            elevation = _get_elevation_where(self)
+
+        rtime = _get_ray_times(self)
+
+        from .xarray import az_attrs, el_attrs, range_attrs, time_attrs
+
+        dim, angle = self._get_fixed_dim_and_angle()
+        print(dim, angle)
+        dims = ("azimuth", "elevation")
+        if dim == dims[1]:
+            dims = (dims[1], dims[0])
+        print(dims)
+
+        variables["azimuth"] = Variable((dims[0],), azimuth, az_attrs)
+        variables["elevation"] = Variable((dims[0],), elevation, el_attrs)
+
+        rtime_attrs = {"units": "seconds since 1970-01-01T00:00:00Z",
+                       "standard_name": "time"}
+        variables["rtime"] = Variable((dims[0],), rtime, rtime_attrs)
+        #
+        #     with self._manager.acquire_context(False) as root:
+        #         #print(root)
+        #         #print(root["how"])
+        #         #print(root["what"])
+        #         #print(root["where"])
+        #         #print(root["scan0"]["how"])
+        #         #print(root["scan0"])
+        #         range_samples = root[group]["how"].attrs["range_samples"]
+        #         range_step = root[group]["how"].attrs["range_step"]
+        #         bin_range = range_step * range_samples
+        #         range_data = np.arange(
+        #             bin_range / 2.0, bin_range * root[group]["how"].attrs["bin_count"], bin_range, dtype="float32"
+        #         )
+        #         longitude = root["where"].attrs["lon"]
+        #         latitude = root["where"].attrs["lat"]
+        #         altitude = root["where"].attrs["height"]
+        #         start = root[group]["how"].attrs["timestamp"]
+        #         import dateutil
+        #         start = dateutil.parser.parse(start)
+        #         start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+        #         angle_res = root[group]["how"].attrs["angle_step"]
+        #
+        #     dim, angle = self._get_fixed_dim_and_angle()
+        #     dims = ("azimuth", "elevation")
+        #     if dim == dims[0]:
+        #         dims = (dims[1], dims[0])
+        #
+        #     sort_idx = np.argsort(azimuth)
+        #     a1gate = np.argsort(rtime[sort_idx])[0]
+        #
+        #
+        #     sweep_mode = (
+        #         "azimuth_surveillance" if dims[0] == "azimuth" else "rhi"
+        #     )
+        #
+        #     from .xarray import az_attrs, el_attrs, range_attrs, time_attrs
+        #
+        #     #print("dims", dimensions)
+        #     range_attrs["meters_to_center_of_first_gate"] = bin_range / 2.0
+        #
+        #     lon_attrs = dict(long_name="longitude", units="degrees_east", standard_name="longitude")
+        #     lat_attrs = dict(long_name="latitude", units="degrees_north", positive="up",
+        #                      standard_name="latitude")
+        #     alt_attrs = dict(long_name="altitude", units="meters",
+        #                      standard_name="altitude")
+        #     variables["longitude"] = Variable((), longitude, lon_attrs)
+        #     variables["latitude"] = Variable((), latitude, lat_attrs)
+        #     variables["altitude"] = Variable((), altitude, alt_attrs)
+        #     variables["time"] = Variable((), start, time_attrs)
+        #     variables["sweep_mode"] = Variable((), sweep_mode)
+        #
+        #     az_attrs["a1gate"] = a1gate
+        #     if dims[0] == "azimuth":
+        #         az_attrs["angle_res"] = angle_res
+        #     else:
+        #         el_attrs["angle_res"] = angle_res
+        #
+        #     variables["azimuth"] = Variable((dims[0],), azimuth, az_attrs)
+        #     variables["elevation"] = Variable((dims[0],), elevation, el_attrs)
+        #     variables["rtime"] = Variable((dims[0],), rtime, rtime_attrs)
+        #     variables["range"] = Variable(("range",), range_data, range_attrs)
+        #     return variables
+
+        return variables
+
+    # def _acquire(self, needs_lock=True):
+    #     # with self._manager.acquire_context(needs_lock) as root:
+    #     #     ds = _nc4_require_group(
+    #     #         root, self._group, self._mode, create_group=_h5netcdf_create_group
+    #     #     )
+    #     with self._manager.acquire_context(needs_lock) as root:
+    #         groups = root[self._group].groups
+    #         variables = [k for k in groups if "data" in k]
+    #         vars_idx = np.argsort([int(v[len("data"):]) for v in variables])
+    #         variables = np.array(variables)[vars_idx].tolist()
+    #         print(variables)
+    #
+    #         ds_list = {"/".join([self._group, var]): _nc4_require_group(
+    #             root, "/".join([self._group, var]), self._mode,
+    #             create_group=_h5netcdf_create_group
+    #         ) for var in variables}
+    #         print(ds_list)
+    #     return ds_list
+
+
+
+    def get_variables(self):
+        return FrozenDict(
+            (k1, v1) for k, v in self.ds.variables.items() for k1, v1 in self.open_store_variable(self._group, k, v).items()
+        )
+
+
+class OdimBackendEntrypoint(BackendEntrypoint):
+    def guess_can_open(self, store_spec):
+        try:
+            return read_magic_number(store_spec).startswith(b"\211HDF\r\n\032\n")
+        except TypeError:
+            pass
+
+        try:
+            _, ext = os.path.splitext(store_spec)
+        except TypeError:
+            return False
+
+        return ext in {".mvol", ".h5"}
+
+    def open_dataset(
+        self,
+        filename_or_obj,
+        *,
+        mask_and_scale=True,
+        decode_times=None,
+        concat_characters=None,
+        decode_coords=None,
+        drop_variables=None,
+        use_cftime=None,
+        decode_timedelta=None,
+        format=None,
+        group=None,
+        lock=None,
+        invalid_netcdf=None,
+        phony_dims="access",
+        decode_vlen_strings=True,
+        keep_elevation=None,
+        keep_azimuth=None,
+    ):
+
+        store = OdimStore.open(
+            filename_or_obj,
+            format=format,
+            group=group,
+            lock=lock,
+            invalid_netcdf=invalid_netcdf,
+            phony_dims=phony_dims,
+            decode_vlen_strings=decode_vlen_strings,
+        )
+
+        with store._manager.acquire_context(True) as root:
+            print("store.group:", store._group)
+            print("root-groups:", root[store._group].groups)
+            groups = root[store._group].groups
+            variables = [k for k in groups if "data" in k]
+            vars_idx = np.argsort([int(v[len("data"):]) for v in variables])
+            variables = np.array(variables)[vars_idx].tolist()
+            print(variables)
+
+            ds_list = ["/".join([store._group, var]) for var in variables]
+            print(ds_list)
+        store.close()
+
+        stores = [OdimStore.open(filename_or_obj,
+                                 format=format,
+                                 group=grp,
+                                 lock=lock,
+                                 invalid_netcdf=invalid_netcdf,
+                                 phony_dims=phony_dims,
+                                 decode_vlen_strings=decode_vlen_strings,) for grp in ds_list]
+
+        store_entrypoint = StoreBackendEntrypoint()
+
+        ds = merge([store_entrypoint.open_dataset(
+            store,
+            mask_and_scale=mask_and_scale,
+            decode_times=decode_times,
+            concat_characters=concat_characters,
+            decode_coords=decode_coords,
+            drop_variables=drop_variables,
+            use_cftime=use_cftime,
+            decode_timedelta=decode_timedelta,
+        ) for store in stores])
+
+        #ds = ds.sortby(list(ds.dims.keys())[0])
+        #ds = ds.pipe(_reindex_angle)
+
+        return ds
+
+
+class GamicStore(H5NetCDFStore):
+    """Store for reading and writing GAMIC data via h5netcdf"""
+
+    def _get_fixed_dim_and_angle(self):
+       with self._manager.acquire_context(False) as root:
+           dim = "azimuth"
+           try:
+               angle = np.round(root[self._group]["how"].attrs[dim], decimals=1)
+           except KeyError:
+               dim = "elevation"
+               angle = np.round(root[self._group]["how"].attrs[dim], decimals=1)
+       return dim, angle
+
+    def open_store_variable(self, group, name, var):
+        import h5py
+
+        #print("Manager:", self._manager)
+
+
+        dims = var.dimensions
+        dimensions = []
+        for n, _ in enumerate(dims):
+            if n == 0:
+                dimensions.append("azimuth")
+            elif n == 1:
+                dimensions.append("range")
+            else:
+                pass
+        dimensions = tuple(dimensions)
+        data = indexing.LazilyOuterIndexedArray(H5NetCDFArrayWrapper(name, self))
         attrs = _read_attributes(var)
 
         # netCDF4 specific encoding
@@ -647,6 +914,7 @@ class GamicStore(WritableCFDataStore):
         # cheat attributes
         #dmom = ds[mom]
         if "moment" in name:
+            encoding["group"] = group
             name = attrs.pop("moment").lower()
             try:
                 name = GAMIC_NAMES[name]
@@ -669,13 +937,15 @@ class GamicStore(WritableCFDataStore):
             attrs["add_offset"] = minval
             attrs["_FillValue"] = float(dmax)
             attrs["_Undetect"] = undetect
+            attrs["coordinates"] = "elevation azimuth range latitude longitude altitude time rtime sweep_mode"
 
         elif "ray_header" in name:
             variables = {}
             recarray = Variable(dimensions, data, attrs, encoding)
-            print(dir(recarray))
+            #print(dir(recarray))
             #print(recarray.values["azimuth_start"])
             ray_header = {recname: recarray.values[recname] for recname in recarray.values.dtype.names}
+
 
             azstart = ray_header["azimuth_start"]
             azstop = ray_header["azimuth_stop"]
@@ -694,142 +964,129 @@ class GamicStore(WritableCFDataStore):
 
             with self._manager.acquire_context(False) as root:
                 #print(root)
+                #print(root["how"])
+                #print(root["what"])
+                #print(root["where"])
                 #print(root["scan0"]["how"])
                 #print(root["scan0"])
-                range_samples = root["scan0"]["how"].attrs["range_samples"]
-                range_step = root["scan0"]["how"].attrs["range_step"]
+                range_samples = root[group]["how"].attrs["range_samples"]
+                range_step = root[group]["how"].attrs["range_step"]
                 bin_range = range_step * range_samples
                 range_data = np.arange(
-                    bin_range / 2.0, bin_range * root["scan0"]["how"].attrs["bin_count"], bin_range, dtype="float32"
+                    bin_range / 2.0, bin_range * root[group]["how"].attrs["bin_count"], bin_range, dtype="float32"
                 )
+                longitude = root["where"].attrs["lon"]
+                latitude = root["where"].attrs["lat"]
+                altitude = root["where"].attrs["height"]
+                start = root[group]["how"].attrs["timestamp"]
+                import dateutil
+                start = dateutil.parser.parse(start)
+                start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+                angle_res = root[group]["how"].attrs["angle_step"]
 
-            from .xarray import az_attrs, el_attrs, range_attrs
+            dim, angle = self._get_fixed_dim_and_angle()
+            dims = ("azimuth", "elevation")
+            if dim == dims[0]:
+                dims = (dims[1], dims[0])
 
-            print("dims", dimensions)
+            sort_idx = np.argsort(azimuth)
+            a1gate = np.argsort(rtime[sort_idx])[0]
+
+
+            sweep_mode = (
+                "azimuth_surveillance" if dims[0] == "azimuth" else "rhi"
+            )
+
+            from .xarray import az_attrs, el_attrs, range_attrs, time_attrs
+
+            #print("dims", dimensions)
             range_attrs["meters_to_center_of_first_gate"] = bin_range / 2.0
 
-            variables["azimuth"] = Variable(("azimuth",), azimuth, az_attrs)
-            variables["elevatiom"] = Variable(("azimuth",), elevation, el_attrs)
-            variables["rtime"] = Variable(("azimuth",), rtime, rtime_attrs)
+            lon_attrs = dict(long_name="longitude", units="degrees_east", standard_name="longitude")
+            lat_attrs = dict(long_name="latitude", units="degrees_north", positive="up",
+                             standard_name="latitude")
+            alt_attrs = dict(long_name="altitude", units="meters",
+                             standard_name="altitude")
+            variables["longitude"] = Variable((), longitude, lon_attrs)
+            variables["latitude"] = Variable((), latitude, lat_attrs)
+            variables["altitude"] = Variable((), altitude, alt_attrs)
+            variables["time"] = Variable((), start, time_attrs)
+            variables["sweep_mode"] = Variable((), sweep_mode)
+
+            az_attrs["a1gate"] = a1gate
+            if dims[0] == "azimuth":
+                az_attrs["angle_res"] = angle_res
+            else:
+                el_attrs["angle_res"] = angle_res
+
+            variables["azimuth"] = Variable((dims[0],), azimuth, az_attrs)
+            variables["elevation"] = Variable((dims[0],), elevation, el_attrs)
+            variables["rtime"] = Variable((dims[0],), rtime, rtime_attrs)
             variables["range"] = Variable(("range",), range_data, range_attrs)
             return variables
 
         return dict({name: Variable(dimensions, data, attrs, encoding)})
 
-
     def get_variables(self):
         return FrozenDict(
-            (k1, v1) for k, v in self.ds.variables.items() for k1, v1 in self.open_store_variable(k, v).items()
+            (k1, v1) for k, v in self.ds.variables.items() for k1, v1 in self.open_store_variable(self._group, k, v).items()
         )
 
-    def get_attrs(self):
-        #print(dir(self))
-        return FrozenDict(_read_attributes(self.ds))
 
-    def get_dimensions(self):
-        #print(self.ds)
-        return self.ds.dimensions
+def _reindex_angle(ds, force=False):
+    # Todo: The current code assumes to have PPI's of 360deg and RHI's of 90deg,
+    #       make this work also for sectorized measurements
+    full_range = dict(azimuth=360, elevation=90)
+    dimname = list(ds.dims)[0]
+    secname = "elevation"
+    dim = ds[dimname]
+    diff = dim.diff(dimname)
+    # this captures different angle spacing
+    # catches also missing rays and double rays
+    # and other erroneous ray alignments which result in different diff values
+    diffset = set(diff.values)
+    non_uniform_angle_spacing = len(diffset) > 1
+    # this captures missing and additional rays in case the angle differences
+    # are equal
+    non_full_circle = False
+    if not non_uniform_angle_spacing:
+        res = list(diffset)[0]
+        non_full_circle = ((res * ds.dims[dimname]) % full_range[dimname]) != 0
 
-    def get_encoding(self):
-        encoding = {}
-        encoding["unlimited_dims"] = {
-            k for k, v in self.ds.dimensions.items() if v is None
-        }
-        return encoding
+    # fix issues with ray alignment
+    if force | non_uniform_angle_spacing | non_full_circle:
+        # create new array and reindex
+        res = ds.azimuth.angle_res
+        new_rays = int(np.round(full_range[dimname] / res, decimals=0))
 
-    def set_dimension(self, name, length, is_unlimited=False):
-        if is_unlimited:
-            self.ds.dimensions[name] = None
-            self.ds.resize_dimension(name, length)
-        else:
-            self.ds.dimensions[name] = length
+        # find exact duplicates and remove
+        _, idx = np.unique(ds[dimname], return_index=True)
+        if len(idx) < len(ds[dimname]):
+            ds = ds.isel({dimname: idx})
+            # if ray_time was errouneously created from wrong dimensions
+            # we need to recalculate it
+            # if sweep._need_time_recalc:
+            #     ray_times = sweep._get_ray_times(nrays=len(idx))
+            #     ray_times = sweep._decode_cf(ray_times)
+            #     ds = ds.assign({"rtime": ray_times})
 
-    def set_attribute(self, key, value):
-        self.ds.attrs[key] = value
+        # todo: check if assumption that beam center points to
+        #       multiples of res/2. is correct in any case
+        azr = np.arange(res / 2.0, new_rays * res, res, dtype=diff.dtype)
+        ds = ds.reindex(
+            {dimname: azr},
+            method="nearest",
+            tolerance=res / 4.0,
+            # fill_value=xr.core.dtypes.NA,
+        )
+        # check other coordinates
+        # check secondary angle coordinate (no nan)
+        # set nan values to reasonable median
+        if np.count_nonzero(np.isnan(ds[secname])):
+            ds[secname] = ds[secname].fillna(ds[secname].median(skipna=True))
+        # todo: rtime is also affected, might need to be treated accordingly
 
-    def encode_variable(self, variable):
-        return _encode_nc4_variable(variable)
-
-    def prepare_variable(
-        self, name, variable, check_encoding=False, unlimited_dims=None
-    ):
-        import h5py
-
-        attrs = variable.attrs.copy()
-        dtype = _get_datatype(variable, raise_on_invalid_encoding=check_encoding)
-
-        fillvalue = attrs.pop("_FillValue", None)
-        if dtype is str and fillvalue is not None:
-            raise NotImplementedError(
-                "h5netcdf does not yet support setting a fill value for "
-                "variable-length strings "
-                "(https://github.com/shoyer/h5netcdf/issues/37). "
-                "Either remove '_FillValue' from encoding on variable %r "
-                "or set {'dtype': 'S1'} in encoding to use the fixed width "
-                "NC_CHAR type." % name
-            )
-
-        if dtype is str:
-            dtype = h5py.special_dtype(vlen=str)
-
-        encoding = _extract_h5nc_encoding(variable, raise_on_invalid=check_encoding)
-        kwargs = {}
-
-        # Convert from NetCDF4-Python style compression settings to h5py style
-        # If both styles are used together, h5py takes precedence
-        # If set_encoding=True, raise ValueError in case of mismatch
-        if encoding.pop("zlib", False):
-            if check_encoding and encoding.get("compression") not in (None, "gzip"):
-                raise ValueError("'zlib' and 'compression' encodings mismatch")
-            encoding.setdefault("compression", "gzip")
-
-        if (
-            check_encoding
-            and "complevel" in encoding
-            and "compression_opts" in encoding
-            and encoding["complevel"] != encoding["compression_opts"]
-        ):
-            raise ValueError("'complevel' and 'compression_opts' encodings mismatch")
-        complevel = encoding.pop("complevel", 0)
-        if complevel != 0:
-            encoding.setdefault("compression_opts", complevel)
-
-        encoding["chunks"] = encoding.pop("chunksizes", None)
-
-        # Do not apply compression, filters or chunking to scalars.
-        if variable.shape:
-            for key in [
-                "compression",
-                "compression_opts",
-                "shuffle",
-                "chunks",
-                "fletcher32",
-            ]:
-                if key in encoding:
-                    kwargs[key] = encoding[key]
-        if name not in self.ds:
-            nc4_var = self.ds.create_variable(
-                name,
-                dtype=dtype,
-                dimensions=variable.dims,
-                fillvalue=fillvalue,
-                **kwargs,
-            )
-        else:
-            nc4_var = self.ds[name]
-
-        for k, v in attrs.items():
-            nc4_var.attrs[k] = v
-
-        target = GamicArrayWrapper(name, self)
-
-        return target, variable.data
-
-    def sync(self):
-        self.ds.sync()
-
-    def close(self, **kwargs):
-        self._manager.close(**kwargs)
+    return ds
 
 
 class GamicBackendEntrypoint(BackendEntrypoint):
@@ -861,8 +1118,10 @@ class GamicBackendEntrypoint(BackendEntrypoint):
         group=None,
         lock=None,
         invalid_netcdf=None,
-        phony_dims=None,
+        phony_dims="access",
         decode_vlen_strings=True,
+        keep_elevation=None,
+        keep_azimuth=None,
     ):
 
         store = GamicStore.open(
@@ -887,4 +1146,8 @@ class GamicBackendEntrypoint(BackendEntrypoint):
             use_cftime=use_cftime,
             decode_timedelta=decode_timedelta,
         )
+
+        ds = ds.sortby(list(ds.dims.keys())[0])
+        ds = ds.pipe(_reindex_angle)
+
         return ds
