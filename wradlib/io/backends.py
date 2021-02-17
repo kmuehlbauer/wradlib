@@ -22,10 +22,12 @@ __all__ = [
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import datetime as dt
+import glob
 import os
 
 import numpy as np
-from xarray import DataArray, Dataset, decode_cf, merge, open_dataset
+import xarray
+from xarray import DataArray, Dataset, decode_cf, merge
 from xarray.backends import H5NetCDFStore
 from xarray.backends.common import AbstractDataStore, BackendArray, BackendEntrypoint
 from xarray.backends.h5netcdf_ import (
@@ -38,13 +40,19 @@ from xarray.backends.locks import SerializableLock, ensure_lock
 from xarray.backends.netCDF4_ import BaseNetCDF4Array, _nc4_require_group
 from xarray.backends.store import StoreBackendEntrypoint
 from xarray.core import indexing
-from xarray.core.utils import Frozen, FrozenDict, close_on_error, read_magic_number
+from xarray.core.utils import (
+    Frozen,
+    FrozenDict,
+    close_on_error,
+    is_remote_uri,
+    read_magic_number,
+)
 from xarray.core.variable import Variable
 
 from wradlib.georef import rect
 from wradlib.io import radolan
 
-from .xarray import GAMIC_NAMES, _reindex_angle, moment_attrs, moments_mapping
+from .xarray import GAMIC_NAMES, XRadBase, _reindex_angle, moment_attrs, moments_mapping, tqdm
 
 try:
     import h5netcdf
@@ -366,7 +374,7 @@ def _reindex_angle(ds, store=None, force=False):
             ds = ds.isel({dimname: idx})
             # if ray_time was errouneously created from wrong dimensions
             # we need to recalculate it
-            if store._need_time_recalc:
+            if store and store._need_time_recalc:
                 ray_times = store._get_ray_times(nrays=len(idx))
                 # need to decode only if ds is decoded
                 if "units" in ds.rtime.encoding:
@@ -557,7 +565,6 @@ class OdimStoreAttributeMixin(HDFStoreAttribute):
             alt = root["where"].attrs["height"]
         return lon, lat, alt
 
-
     def _get_dset_what(self):
         with self._manager.acquire_context(False) as root:
             attrs = {}
@@ -675,7 +682,7 @@ class OdimStore(H5NetCDFStore, OdimStoreAttributeMixin):
             longitude=Variable((), lon, lon_attrs),
             latitude=Variable((), lat, lat_attrs),
             altitude=Variable((), alt, alt_attrs),
-            )
+        )
 
         return coordinates
 
@@ -776,7 +783,8 @@ class OdimBackendEntrypoint(BackendEntrypoint):
                     decode_timedelta=decode_timedelta,
                 ).pipe(_reindex_angle, store=store)
                 for store in stores
-            ])
+            ]
+        )
 
         return ds
 
@@ -818,6 +826,7 @@ class GamicStoreAttributeMixin(HDFStoreAttribute):
         with self._manager.acquire_context(False) as root:
             start = root[self._group]["how"].attrs["timestamp"]
             import dateutil
+
             start = dateutil.parser.parse(start)
             start = start.replace(tzinfo=dt.timezone.utc).timestamp()
         return start
@@ -843,6 +852,7 @@ class GamicStoreAttributeMixin(HDFStoreAttribute):
 
 def _prepare_open_variable(self, name, var):
     import h5py
+
     dim, _ = self._get_fixed_dim_and_angle()
     dims = var.dimensions
     dimensions = []
@@ -889,15 +899,13 @@ def _prepare_open_variable(self, name, var):
     return dimensions, data, attrs, encoding
 
 
-def _get_ray_header_data(self):
-    name = "ray_header"
-    var = self.ds.variables[name]
+def _get_ray_header_data(self, name, var):
+
     dimensions, data, attrs, encoding = _prepare_open_variable(self, name, var)
 
     recarray = Variable(dimensions, data, attrs, encoding)
     ray_header = {
-        recname: recarray.values[recname]
-        for recname in recarray.values.dtype.names
+        recname: recarray.values[recname] for recname in recarray.values.dtype.names
     }
 
     azstart = ray_header["azimuth_start"]
@@ -922,11 +930,10 @@ class GamicStore(H5NetCDFStore, GamicStoreAttributeMixin):
 
     def open_store_variable(self, name, var):
 
-        dimensions, data, attrs, encoding = _prepare_open_variable(self, name, var)
-
-        # cheat attributes
-        # dmom = ds[mom]
+        # fix moment attributes
         if "moment" in name:
+            dimensions, data, attrs, encoding = _prepare_open_variable(self, name, var)
+
             encoding["group"] = self._group
             name = attrs.pop("moment").lower()
             try:
@@ -953,27 +960,28 @@ class GamicStore(H5NetCDFStore, GamicStoreAttributeMixin):
             attrs[
                 "coordinates"
             ] = "elevation azimuth range latitude longitude altitude time rtime sweep_mode"
+        elif "ray_header" in name:
+            variables = self.open_store_coordinates(name, var)
+            return variables
         else:
             return {}
 
         return {name: Variable(dimensions, data, attrs, encoding)}
 
-    def open_store_coordinates(self):
+    def open_store_coordinates(self, name, var):
         from .xarray import az_attrs, el_attrs, range_attrs, time_attrs
 
-        azimuth, elevation, rtime = _get_ray_header_data(self)
+        azimuth, elevation, rtime = _get_ray_header_data(self, name, var)
         dim, angle = self.fixed_dim_and_angle
         angle_res = np.round(np.nanmedian(np.diff(locals()[dim])), decimals=1)
-        #print(dim, angle)
+        # print(dim, angle)
         dims = ("azimuth", "elevation")
         if dim == dims[1]:
             dims = (dims[1], dims[0])
 
         sort_idx = np.argsort(locals()[dim])
-        #print(sort_idx)
+        # print(sort_idx)
         a1gate = np.argsort(rtime[sort_idx])[0]
-
-
 
         az_attrs["a1gate"] = a1gate
 
@@ -1016,7 +1024,7 @@ class GamicStore(H5NetCDFStore, GamicStoreAttributeMixin):
             longitude=Variable((), lon, lon_attrs),
             latitude=Variable((), lat, lat_attrs),
             altitude=Variable((), alt, alt_attrs),
-            )
+        )
 
         return coordinates
 
@@ -1026,9 +1034,14 @@ class GamicStore(H5NetCDFStore, GamicStoreAttributeMixin):
             for k, v in self.ds.variables.items()
             for k1, v1 in {
                 **self.open_store_variable(k, v),
-                **self.open_store_coordinates(),
             }.items()
         )
+
+    def get_attrs(self):
+        dim, angle = self.fixed_dim_and_angle
+        attributes = {}
+        attributes["fixed_angle"] = angle
+        return FrozenDict(attributes)
 
 
 class GamicBackendEntrypoint(BackendEntrypoint):
@@ -1057,7 +1070,7 @@ class GamicBackendEntrypoint(BackendEntrypoint):
         use_cftime=None,
         decode_timedelta=None,
         format=None,
-        group=None,
+        group="scan0",
         lock=None,
         invalid_netcdf=None,
         phony_dims="access",
@@ -1093,6 +1106,270 @@ class GamicBackendEntrypoint(BackendEntrypoint):
         ds = ds.pipe(_reindex_angle)
 
         return ds
+
+
+def get_group_names(filename, groupname):
+    with h5netcdf.File(filename, "r") as fh:
+        groups = [grp for grp in fh.groups if groupname in grp]
+    return groups
+
+
+class XRadVolume(XRadBase):
+    """Class for holding a volume of radar sweeps"""
+
+    def __init__(self, **kwargs):
+        super(XRadVolume, self).__init__()
+        self._data = None
+        self._root = None
+        self._dims = dict(azimuth="elevation", elevation="azimuth")
+
+    def __repr__(self):
+        summary = ["<wradlib.{}>".format(type(self).__name__)]
+        dims = "Dimension(s):"
+        dims_summary = f"sweep: {len(self)}"
+        summary.append("{} ({})".format(dims, dims_summary))
+        dim = list(self[0].dims.keys())[0]
+        angle = f"{self._dims[dim].capitalize()}(s):"
+        angle_summary = [f"{v.attrs['fixed_angle']:.1f}" for v in self]
+        angle_summary = ", ".join(angle_summary)
+        summary.append("{} ({})".format(angle, angle_summary))
+
+        return "\n".join(summary)
+
+    @property
+    def root(self):
+        """Return root object."""
+        if self._root is None:
+            self.assign_root()
+        return self._root
+
+    def assign_root(self):
+        """(Re-)Create root object according CfRadial2 standard"""
+        # assign root variables
+        sweep_group_names = [f"sweep_{i}" for i in range(len(self))]
+
+        sweep_fixed_angles = [ts.attrs["fixed_angle"] for ts in self]
+
+        # extract time coverage
+        times = np.array(
+            [[ts.rtime.values.min(), ts.rtime.values.max()] for ts in self]
+        ).flatten()
+        time_coverage_start = min(times)
+        time_coverage_end = max(times)
+
+        time_coverage_start_str = str(time_coverage_start)[:19] + "Z"
+        time_coverage_end_str = str(time_coverage_end)[:19] + "Z"
+
+        # create root group from scratch
+        root = Dataset()  # data_vars=wrl.io.xarray.global_variables,
+        # attrs=wrl.io.xarray.global_attrs)
+
+        # take first dataset/file for retrieval of location
+        # site = self.site
+
+        # assign root variables
+        root = root.assign(
+            {
+                "volume_number": 0,
+                "platform_type": str("fixed"),
+                "instrument_type": "radar",
+                "primary_axis": "axis_z",
+                "time_coverage_start": time_coverage_start_str,
+                "time_coverage_end": time_coverage_end_str,
+                "latitude": self[0]["latitude"],
+                "longitude": self[0]["longitude"],
+                "altitude": self[0]["altitude"],
+                "sweep_group_name": (["sweep"], sweep_group_names),
+                "sweep_fixed_angle": (["sweep"], sweep_fixed_angles),
+            }
+        )
+
+        # assign root attributes
+        attrs = {}
+        attrs.update(
+            {
+                "version": "None",
+                "title": "None",
+                "institution": "None",
+                "references": "None",
+                "source": "None",
+                "history": "None",
+                "comment": "im/exported using wradlib",
+                "instrument_name": "None",
+            }
+        )
+        # attrs["version"] = self[0].attrs["version"]
+        root = root.assign_attrs(attrs)
+        # todo: pull in only CF attributes
+        root = root.assign_attrs(self[0].attrs)
+        self._root = root
+
+    @property
+    def site(self):
+        """Return coordinates of radar site."""
+        return self[0][["latitude", "longitude", "altitude"]]
+
+    @property
+    def Conventions(self):
+        """Return Conventions string."""
+        try:
+            conv = self[0].attrs["Conventions"]
+        except KeyError:
+            conv = None
+        return conv
+
+    def to_odim(self, filename, timestep=0):
+        """Save volume to ODIM_H5/V2_2 compliant file.
+
+        Parameters
+        ----------
+        filename : str
+            Name of the output file
+        timestep : int
+            timestep of wanted volume
+        """
+        if self.root:
+            to_odim(self, filename, timestep=timestep)
+        else:
+            warnings.warn(
+                "WRADLIB: No OdimH5-compliant data structure " "available. Not saving.",
+                UserWarning,
+            )
+
+    def to_cfradial2(self, filename, timestep=0):
+        """Save volume to CfRadial2 compliant file.
+
+        Parameters
+        ----------
+        filename : str
+            Name of the output file
+        timestep : int
+            timestep wanted volume
+        """
+        if self.root:
+            to_cfradial2(self, filename, timestep=timestep)
+        else:
+            warnings.warn(
+                "WRADLIB: No CfRadial2-compliant data structure "
+                "available. Not saving.",
+                UserWarning,
+            )
+
+    def to_netcdf(self, filename, timestep=None, keys=None):
+        """Save volume to netcdf compliant file.
+
+        Parameters
+        ----------
+        filename : str
+            Name of the output file
+        timestep : int, slice
+            timestep/slice of wanted volume
+        keys : list
+            list of sweep_group_names which should be written to the file
+        """
+        if self.root:
+            to_netcdf(self, filename, keys=keys, timestep=timestep)
+        else:
+            warnings.warn(
+                "WRADLIB: No netcdf-compliant data structure " "available. Not saving.",
+                UserWarning,
+            )
+
+
+def open_dataset(filename_or_obj, **kwargs):
+
+    engine = kwargs.pop("engine")
+
+    if "gamic" in engine:
+        groupname = "scan"
+    elif "odim" in engine:
+        groupname = "dataset"
+    else:
+        raise ValueError(
+            f"wradlib: groupname {groupname} not allowed for engine {engine}."
+        )
+
+    group = kwargs.pop("group", None)
+    if group is None:
+        group = get_group_names(filename_or_obj, groupname)
+    elif isinstance(group, str):
+        group = [group]
+    else:
+        pass
+
+    ds = [
+        xarray.open_dataset(filename_or_obj, engine=engine, group=grp, **kwargs)
+        for grp in group
+    ]
+
+    if len(ds) > 1:
+        vol = XRadVolume()
+        vol.extend(ds)
+        vol.sort(key=lambda x: x.time.min().values)
+        ds = vol
+    else:
+        ds = ds[0]
+
+    return ds
+
+
+def open_mfdataset(paths, **kwargs):
+
+    if isinstance(paths, str):
+        if is_remote_uri(paths):
+            raise ValueError(
+                "cannot do wild-card matching for paths that are remote URLs: "
+                "{!r}. Instead, supply paths as an explicit list of strings.".format(
+                    paths
+                )
+            )
+        paths = sorted(glob.glob(paths))
+    else:
+        paths = [str(p) if isinstance(p, Path) else p for p in paths]
+
+    engine = kwargs.pop("engine")
+
+    if "gamic" in engine:
+        groupname = "scan"
+    elif "odim" in engine:
+        groupname = "dataset"
+    else:
+        raise ValueError(
+            f"wradlib: groupname {groupname} not allowed for engine {engine}."
+        )
+
+    group = kwargs.pop("group", None)
+    if group is None:
+        group = get_group_names(paths[0], groupname)
+    elif isinstance(group, str):
+        group = [group]
+    else:
+        pass
+
+    concat_dim = kwargs.pop("concat_dim", "time")
+    combine = kwargs.pop("combine", "nested")
+
+    ds = [
+        xarray.open_mfdataset(
+            paths,
+            engine=engine,
+            group=grp,
+            concat_dim=concat_dim,
+            combine=combine,
+            **kwargs,
+        )
+        for grp in tqdm(group)
+    ]
+
+    if len(ds) > 1:
+        vol = XRadVolume()
+        vol.extend(ds)
+        vol.sort(key=lambda x: x.time.min().values)
+        ds = vol
+    else:
+        ds = ds[0]
+
+    return ds
 
 
 # def _open_odim_sweep1(filename, **kwargs):
