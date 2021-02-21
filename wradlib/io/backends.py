@@ -32,7 +32,10 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 import datetime as dt
 import glob
 import io
+import mmap as mm
 import os
+import re
+import sys
 from pathlib import Path
 
 import numpy as np
@@ -42,6 +45,8 @@ from xarray.backends import NetCDF4DataStore, H5NetCDFStore
 from xarray.backends.common import AbstractDataStore, BackendArray, BackendEntrypoint
 from xarray.backends.locks import SerializableLock, ensure_lock
 from xarray.backends.store import StoreBackendEntrypoint
+from xarray.backends.file_manager import CachingFileManager, DummyFileManager
+from xarray.conventions import decode_cf_variable
 from xarray.core import indexing
 from xarray.core.utils import (
     Frozen,
@@ -62,6 +67,7 @@ from .xarray import (
     RadarVolume,
     _assign_data_radial,
     _assign_data_radial2,
+    maybe_decode_bytes,
 )
 
 try:
@@ -219,24 +225,110 @@ def radolan_to_xarray(data, attrs):
     return WradlibDataset({}, dict(variables), {}, {})
 
 
+class radolan_file(object):
+    def __init__(self, filename, mmap=None):
+        if hasattr(filename, 'seek'):  # file-like
+            self.fp = filename
+            self.filename = 'None'
+            if mmap is None:
+                mmap = False
+            elif mmap and not hasattr(filename, 'fileno'):
+                raise ValueError('Cannot use file object for mmap')
+        else:  # maybe it's a string
+            self.filename = filename
+            omode = "r"
+            self.fp = open(self.filename, '%sb' % omode)
+            if mmap is None:
+                # Mmapped files on PyPy cannot be usually closed
+                # before the GC runs, so it's better to use mmap=False
+                # as the default.
+                IS_PYPY = ('__pypy__' in sys.modules)
+                mmap = (not IS_PYPY)
+
+        self.use_mmap = mmap
+        # self.mode = mode
+        # self.version_byte = version
+        # self.maskandscale = maskandscale
+
+        self.dimensions = {}
+        self.variables = {}
+
+        self._dims = []
+        # self._recs = 0
+        # self._recsize = 0
+
+        self._mm = None
+        self._mm_buf = None
+        if self.use_mmap:
+            self._mm = mm.mmap(self.fp.fileno(), 0, access=mm.ACCESS_READ)
+            self._mm_buf = np.frombuffer(self._mm, dtype=np.int8)
+
+        self._attributes = {}
+
+        self._read()
+
+    def _read(self):
+        # Check magic bytes and version
+        # magic = self.fp.read(3)
+        # if not magic == b'CDF':
+        #     raise TypeError("Error: %s is not a valid NetCDF 3 file" %
+        #                     self.filename)
+        # todo read header here ?
+        #self.__dict__['version_byte'] = np.frombuffer(self.fp.read(1), '>b')[0]
+        #header =
+
+        # Read file headers and set data.
+        #self._read_dim_array()
+        #self._read_gatt_array()
+        #self._read_var_array()
+        pass
+
+
+
+
+def _open_radolan(filename, mmap):
+    import gzip
+
+    if isinstance(filename, str) and filename.endswith(".gz"):
+        return radolan_file(gzip.open(filename), mmap=mmap)
+
+    if isinstance(filename, bytes):
+        filename = io.BytesIO(filename)
+
+    return radolan_file(filename, mmap=mmap)
+
+
 class RadolanDataStore(AbstractDataStore):
     """
     Implements the ``xr.AbstractDataStore`` read-only API for a Radolan file.
     """
 
-    def __init__(self, filename, lock=None, **backend_kwargs):
+    def __init__(self, filename_or_obj, lock=None, mmap=None):
 
         if lock is None:
             lock = RADOLAN_LOCK
         self.lock = ensure_lock(lock)
-        self.ds = radolan_to_xarray(
-            *radolan.read_radolan_composite(
-                filename, loaddata="backend", **backend_kwargs
+        if isinstance(filename_or_obj, str):
+            manager = CachingFileManager(
+                _open_radolan,
+                filename_or_obj,
+                lock=lock,
+                kwargs=dict(mmap=mmap),
             )
-        )
-        for k, v in self.ds.variables.items():
-            print(k, v)
-            print(v.dimensions)
+        else:
+            radolan_dataset = _open_radolan(filename_or_obj, mmap=mmap)
+            manager = DummyFileManager(radolan_dataset)
+
+        self._manager = manager
+
+        # self.ds = radolan_to_xarray(
+        #     *radolan.read_radolan_composite(
+        #         filename, loaddata="backend", **backend_kwargs
+        #     )
+        # )
+        # for k, v in self.ds.variables.items():
+        #     print(k, v)
+        #     print(v.dimensions)
 
     def open_store_variable(self, name, var):
         if isinstance(var.data, np.ndarray):
@@ -531,7 +623,6 @@ def get_group_names(filename, groupname):
 
 
 class CfRadial1BackendEntrypoint(BackendEntrypoint):
-
     def open_dataset(
         self,
         filename_or_obj,
@@ -549,8 +640,8 @@ class CfRadial1BackendEntrypoint(BackendEntrypoint):
         invalid_netcdf=None,
         phony_dims="access",
         decode_vlen_strings=True,
-        #keep_elevation=None,
-        #keep_azimuth=None,
+        # keep_elevation=None,
+        # keep_azimuth=None,
     ):
 
         if isinstance(filename_or_obj, io.IOBase):
@@ -586,8 +677,31 @@ class CfRadial1BackendEntrypoint(BackendEntrypoint):
         return ds
 
 
-class CfRadial2BackendEntrypoint(BackendEntrypoint):
+def _unpack_netcdf_delta_units_ref_date(units):
+    matches = re.match(r"(.+) since (.+)", units)
+    if not matches:
+        raise ValueError(f"invalid time units: {units}")
+    return [s.strip() for s in matches.groups()]
 
+
+def rewrite_time_reference_units(ds):
+    has_time_reference = "time_reference" in ds.variables
+    if has_time_reference:
+        ref_date = str(ds.variables["time_reference"].data)
+        for v in ds.variables.values():
+            attrs = v.attrs
+            has_time_reference_units = (
+                "units" in attrs
+                and "since" in attrs["units"]
+                and "time_reference" in attrs["units"]
+            )
+            if has_time_reference_units and has_time_reference:
+                delta_units, _ = _unpack_netcdf_delta_units_ref_date(attrs["units"])
+                v.attrs["units"] = " ".join([delta_units, "since", ref_date])
+    return ds
+
+
+class CfRadial2BackendEntrypoint(BackendEntrypoint):
     def open_dataset(
         self,
         filename_or_obj,
@@ -605,8 +719,8 @@ class CfRadial2BackendEntrypoint(BackendEntrypoint):
         invalid_netcdf=None,
         phony_dims="access",
         decode_vlen_strings=True,
-        #keep_elevation=None,
-        #keep_azimuth=None,
+        # keep_elevation=None,
+        # keep_azimuth=None,
     ):
 
         if isinstance(filename_or_obj, io.IOBase):
@@ -625,7 +739,11 @@ class CfRadial2BackendEntrypoint(BackendEntrypoint):
         if group is not None:
             variables = store.get_variables()
             site = Dataset(variables)
-            site = {key: loc for key, loc in site.items() if key in ["longitude", "latitude", "altitude"]}
+            site = {
+                key: loc
+                for key, loc in site.items()
+                if key in ["longitude", "latitude", "altitude"]
+            }
 
             store.close()
 
@@ -716,7 +834,9 @@ def open_dataset(filename_or_obj, **kwargs):
         pass
 
     ds = [
-        xarray.open_dataset(filename_or_obj, engine=engine, backend_kwargs=dict(group=grp), **kwargs)
+        xarray.open_dataset(
+            filename_or_obj, engine=engine, backend_kwargs=dict(group=grp), **kwargs
+        )
         for grp in groups
     ]
 
