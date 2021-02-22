@@ -227,14 +227,18 @@ def radolan_to_xarray(data, attrs):
 
 class radolan_file(object):
     def __init__(self, filename, mmap=None):
+        print("fname:", filename)
         if hasattr(filename, 'seek'):  # file-like
+            print("file_like")
             self.fp = filename
             self.filename = 'None'
             if mmap is None:
                 mmap = False
             elif mmap and not hasattr(filename, 'fileno'):
                 raise ValueError('Cannot use file object for mmap')
+            print("mmap:", mmap)
         else:  # maybe it's a string
+            print("file_string")
             self.filename = filename
             omode = "r"
             self.fp = open(self.filename, '%sb' % omode)
@@ -260,10 +264,11 @@ class radolan_file(object):
         self._mm = None
         self._mm_buf = None
         if self.use_mmap:
+            print("FileNo.:", self.fp.fileno())
             self._mm = mm.mmap(self.fp.fileno(), 0, access=mm.ACCESS_READ)
             self._mm_buf = np.frombuffer(self._mm, dtype=np.int8)
 
-        self._attributes = {}
+        self.attributes = {}
 
         self._read()
 
@@ -275,22 +280,55 @@ class radolan_file(object):
         #                     self.filename)
         # todo read header here ?
         #self.__dict__['version_byte'] = np.frombuffer(self.fp.read(1), '>b')[0]
-        #header =
+        header = ""
+        while True:
+            mychar = self.fp.read(1)
+            if not mychar:
+                raise EOFError(
+                    "Unexpected EOF detected while reading " "RADOLAN header")
+            if mychar == b"\x03":
+                break
+            header += str(mychar.decode())
+        print(header)
+
+        attrs = radolan.parse_dwd_composite_header(header)
+        for k, v in attrs.items():
+            self.__setattr__(k, v)
+
+        begin_ = len(header) + 1
+        a_size = attrs["datasize"]
+        #print(self._mm_buf.shape)
+        print(a_size, begin_)
+        shape = (attrs["nrow"], attrs["ncol"])
+        dims = ("y", "x")
+        name = attrs["producttype"]
+        if self.use_mmap:
+            data = self._mm_buf[begin_:begin_ + a_size].view(dtype=np.uint16)
+        else:
+            pos = self.fp.tell()
+            self.fp.seek(begin_)
+            data = np.frombuffer(self.fp.read(a_size), dtype=np.uint8
+                                ).view(dtype=np.uint16)
+            self.fp.seek(pos)
+        data.shape = shape
+
+        self.variables[name] = WradlibVariable(dims, data, attrs=attrs)
 
         # Read file headers and set data.
+        #self._read_numrecs()
         #self._read_dim_array()
         #self._read_gatt_array()
         #self._read_var_array()
-        pass
 
 
 
 
-def _open_radolan(filename, mmap):
+def _open_radolan(filename, mmap=None):
     import gzip
 
     if isinstance(filename, str) and filename.endswith(".gz"):
-        return radolan_file(gzip.open(filename), mmap=mmap)
+        print(filename)
+        return radolan_file(gzip.open(filename), mmap=None)
 
     if isinstance(filename, bytes):
         filename = io.BytesIO(filename)
@@ -330,6 +368,10 @@ class RadolanDataStore(AbstractDataStore):
         #     print(k, v)
         #     print(v.dimensions)
 
+    @property
+    def ds(self):
+        return self._manager.acquire()
+
     def open_store_variable(self, name, var):
         if isinstance(var.data, np.ndarray):
             print("numpy")
@@ -339,7 +381,8 @@ class RadolanDataStore(AbstractDataStore):
             data = indexing.LazilyOuterIndexedArray(wrapped_array)
             print("other")
 
-        encoding = self.ds.encoding.copy()
+        encoding = {}
+        #encoding = self.ds.encoding.copy()
         encoding["original_shape"] = var.data.shape
 
         return Variable(var.dimensions, data, var.attributes, encoding)
@@ -423,11 +466,13 @@ class RadolanBackendEntrypoint(BackendEntrypoint):
         use_cftime=None,
         decode_timedelta=None,
         lock=None,
+        mmap=None,
     ):
 
         store = RadolanDataStore(
             filename_or_obj,
             lock=lock,
+            mmap=mmap,
         )
         store_entrypoint = StoreBackendEntrypoint()
         with close_on_error(store):

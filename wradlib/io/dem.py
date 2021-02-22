@@ -90,6 +90,7 @@ def download_srtm(
                     break
 
     elif version == 3:
+        headers = {}
         if token is not None:
             headers.update({"Authorization": "Bearer %s" % (token)})
         try:
