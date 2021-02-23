@@ -32,7 +32,6 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 import datetime as dt
 import glob
 import io
-import mmap as mm
 import os
 import re
 import sys
@@ -48,6 +47,7 @@ from xarray.backends.store import StoreBackendEntrypoint
 from xarray.backends.file_manager import CachingFileManager, DummyFileManager
 from xarray.conventions import decode_cf_variable
 from xarray.core import indexing
+from xarray.core.indexing import NumpyIndexingAdapter
 from xarray.core.utils import (
     Frozen,
     FrozenDict,
@@ -81,21 +81,21 @@ except ModuleNotFoundError:
 RADOLAN_LOCK = SerializableLock()
 
 
-class RadolanArrayWrapper(BackendArray):
-    def __init__(self, datastore, array):
-        self.datastore = datastore
-        self.shape = array.shape
-        self.dtype = array.dtype
-        self.array = array
-
-    def __getitem__(self, key):
-        return indexing.explicit_indexing_adapter(
-            key, self.shape, indexing.IndexingSupport.BASIC, self._getitem
-        )
-
-    def _getitem(self, key):
-        with self.datastore.lock:
-            return self.array[key]
+# class RadolanArrayWrapper(BackendArray):
+#     def __init__(self, datastore, array):
+#         self.datastore = datastore
+#         self.shape = array.shape
+#         self.dtype = array.dtype
+#         self.array = array
+#
+#     def __getitem__(self, key):
+#         return indexing.explicit_indexing_adapter(
+#             key, self.shape, indexing.IndexingSupport.BASIC, self._getitem
+#         )
+#
+#     def _getitem(self, key):
+#         with self.datastore.lock:
+#             return self.array[key]
 
 
 class WradlibVariable(object):
@@ -185,7 +185,7 @@ def radolan_to_xarray(data, attrs):
     x_var = WradlibVariable(("x",), xlocs, xattrs)
     variables.append(("x", x_var))
     yattrs = {
-        "units": "m",
+        "units": "km",
         "long_name": "y coordinate of projection",
         "standard_name": "projection_y_coordinate",
     }
@@ -225,115 +225,120 @@ def radolan_to_xarray(data, attrs):
     return WradlibDataset({}, dict(variables), {}, {})
 
 
+class RadolanArrayWrapper(BackendArray):
+    def __init__(self, variable_name, datastore):
+        self.datastore = datastore
+        self.variable_name = variable_name
+        array = self.get_variable().data
+        self.shape = array.shape
+        self.dtype = np.dtype(array.dtype.kind + str(array.dtype.itemsize))
+
+    def get_variable(self, needs_lock=True):
+        ds = self.datastore._manager.acquire(needs_lock)
+        return ds.variables[self.variable_name]
+
+    def __getitem__(self, key):
+        data = NumpyIndexingAdapter(self.get_variable().data)[key]
+        # disable copy, hopefully this works
+        return np.array(data, dtype=self.dtype, copy=False)
+
+
 class radolan_file(object):
-    def __init__(self, filename, mmap=None):
-        print("fname:", filename)
-        if hasattr(filename, 'seek'):  # file-like
-            print("file_like")
+    def __init__(self, filename):
+        if hasattr(filename, 'seek'):
             self.fp = filename
             self.filename = 'None'
-            if mmap is None:
-                mmap = False
-            elif mmap and not hasattr(filename, 'fileno'):
-                raise ValueError('Cannot use file object for mmap')
-            print("mmap:", mmap)
-        else:  # maybe it's a string
-            print("file_string")
+        else:
             self.filename = filename
-            omode = "r"
-            self.fp = open(self.filename, '%sb' % omode)
-            if mmap is None:
-                # Mmapped files on PyPy cannot be usually closed
-                # before the GC runs, so it's better to use mmap=False
-                # as the default.
-                IS_PYPY = ('__pypy__' in sys.modules)
-                mmap = (not IS_PYPY)
-
-        self.use_mmap = mmap
-        # self.mode = mode
-        # self.version_byte = version
-        # self.maskandscale = maskandscale
+            mode = "r"
+            self.fp = open(self.filename, f"{mode}b")
 
         self.dimensions = {}
         self.variables = {}
-
-        self._dims = []
-        # self._recs = 0
-        # self._recsize = 0
-
-        self._mm = None
-        self._mm_buf = None
-        if self.use_mmap:
-            print("FileNo.:", self.fp.fileno())
-            self._mm = mm.mmap(self.fp.fileno(), 0, access=mm.ACCESS_READ)
-            self._mm_buf = np.frombuffer(self._mm, dtype=np.int8)
-
         self.attributes = {}
-
         self._read()
 
     def _read(self):
-        # Check magic bytes and version
-        # magic = self.fp.read(3)
-        # if not magic == b'CDF':
-        #     raise TypeError("Error: %s is not a valid NetCDF 3 file" %
-        #                     self.filename)
-        # todo read header here ?
-        #self.__dict__['version_byte'] = np.frombuffer(self.fp.read(1), '>b')[0]
-        header = ""
-        while True:
-            mychar = self.fp.read(1)
-            if not mychar:
-                raise EOFError(
-                    "Unexpected EOF detected while reading " "RADOLAN header")
-            if mychar == b"\x03":
-                break
-            header += str(mychar.decode())
-        print(header)
-
+        header = radolan.read_radolan_header(self.fp)
         attrs = radolan.parse_dwd_composite_header(header)
-        for k, v in attrs.items():
-            self.__setattr__(k, v)
 
-        begin_ = len(header) + 1
-        a_size = attrs["datasize"]
-        #print(self._mm_buf.shape)
-        print(a_size, begin_)
+        #offset = len(header) + 1
+        size = attrs["datasize"]
         shape = (attrs["nrow"], attrs["ncol"])
+        self.dimensions["x"] = attrs["ncol"]
+        self.dimensions["y"] = attrs["nrow"]
         dims = ("y", "x")
         name = attrs["producttype"]
-        if self.use_mmap:
-            data = self._mm_buf[begin_:begin_ + a_size].view(dtype=np.uint16)
-        else:
-            pos = self.fp.tell()
-            self.fp.seek(begin_)
-            data = np.frombuffer(self.fp.read(a_size), dtype=np.uint8
-                                ).view(dtype=np.uint16)
-            self.fp.seek(pos)
+        #pos = self.fp.tell()
+        #self.fp.seek(offset)
+        data = np.frombuffer(self.fp.read(size), dtype=np.uint8).view(dtype=np.uint16)
+        #self.fp.seek(pos)
         data.shape = shape
+        pattrs = radolan._get_radolan_product_attributes(attrs)
+        pattrs.update({"long_name": name, "coordinates": "time y x"})
+        mask = 0xFFF
 
-        self.variables[name] = WradlibVariable(dims, data, attrs=attrs)
+        attrs["secondary"] = np.where(data & 0x1000)[0]
+        attrs["nodatamask"] = np.where(data & 0x2000)[0]
+        attrs["cluttermask"] = np.where(data & 0x8000)[0]
+        self.variables[name] = WradlibVariable(dims, data & mask, attrs=pattrs)
 
-        # Read file headers and set data.
-        #self._read_numrecs()
-        #self._read_dim_array()
-        #self._read_gatt_array()
-        #self._read_var_array()
+        xlocs, ylocs = rect.get_radolan_coordinates(attrs["nrow"], attrs["ncol"], trig=True)
+        #if pattrs:
+        #    if "nodatamask" in attrs:
+        #        data.flat[attrs["nodatamask"]] = pattrs["_FillValue"]
+        #    if "cluttermask" in attrs:
+        #        data.flat[attrs["cluttermask"]] = pattrs["_FillValue"]
+
+        time_attrs = {
+            "standard_name": "time",
+            "units": "seconds since 1970-01-01T00:00:00Z",
+        }
+        time = np.array([attrs["datetime"].replace(tzinfo=dt.timezone.utc).timestamp()])
+        time_var = WradlibVariable("time", data=time, attrs=time_attrs)
+        self.variables["time"] = time_var
+
+        xattrs = {
+            "units": "km",
+            "long_name": "x coordinate of projection",
+            "standard_name": "projection_x_coordinate",
+        }
+        x_var = WradlibVariable(("x",), xlocs, xattrs)
+        self.variables["x"] = x_var
+        yattrs = {
+            "units": "m",
+            "long_name": "y coordinate of projection",
+            "standard_name": "projection_y_coordinate",
+        }
+        y_var = WradlibVariable(("y",), ylocs, yattrs)
+        self.variables["y"] = y_var
+
+        # lon_var = WradlibVariable(
+        #     ("y", "x"),
+        #     data=radolan_grid_ll[..., 0],
+        #     attrs={"long_name": "longitude", "units": "degrees_east"},
+        # )
+        # lat_var = WradlibVariable(
+        #     ("y", "x"),
+        #     data=radolan_grid_ll[..., 1],
+        #     attrs={"long_name": "latitude", "units": "degrees_north"},
+        # )
+        # self.variables["lon"] = lon_var
+        # self.variables["lat"] = lat_var
+
+        self.attributes.update(attrs)
 
 
-
-
-def _open_radolan(filename, mmap=None):
+# todo: use this in radolan.get_radolan_filehandle
+def _open_radolan(filename):
     import gzip
-
     if isinstance(filename, str) and filename.endswith(".gz"):
-        print(filename)
-        return radolan_file(gzip.open(filename), mmap=None)
+        return radolan_file(gzip.open(filename))
 
     if isinstance(filename, bytes):
         filename = io.BytesIO(filename)
 
-    return radolan_file(filename, mmap=mmap)
+    return radolan_file(filename)
 
 
 class RadolanDataStore(AbstractDataStore):
@@ -341,8 +346,7 @@ class RadolanDataStore(AbstractDataStore):
     Implements the ``xr.AbstractDataStore`` read-only API for a Radolan file.
     """
 
-    def __init__(self, filename_or_obj, lock=None, mmap=None):
-
+    def __init__(self, filename_or_obj, lock=None):
         if lock is None:
             lock = RADOLAN_LOCK
         self.lock = ensure_lock(lock)
@@ -351,41 +355,19 @@ class RadolanDataStore(AbstractDataStore):
                 _open_radolan,
                 filename_or_obj,
                 lock=lock,
-                kwargs=dict(mmap=mmap),
             )
         else:
-            radolan_dataset = _open_radolan(filename_or_obj, mmap=mmap)
+            radolan_dataset = _open_radolan(filename_or_obj)
             manager = DummyFileManager(radolan_dataset)
 
         self._manager = manager
-
-        # self.ds = radolan_to_xarray(
-        #     *radolan.read_radolan_composite(
-        #         filename, loaddata="backend", **backend_kwargs
-        #     )
-        # )
-        # for k, v in self.ds.variables.items():
-        #     print(k, v)
-        #     print(v.dimensions)
 
     @property
     def ds(self):
         return self._manager.acquire()
 
     def open_store_variable(self, name, var):
-        if isinstance(var.data, np.ndarray):
-            print("numpy")
-            data = var.data
-        else:
-            wrapped_array = RadolanArrayWrapper(self, var.data)
-            data = indexing.LazilyOuterIndexedArray(wrapped_array)
-            print("other")
-
-        encoding = {}
-        #encoding = self.ds.encoding.copy()
-        encoding["original_shape"] = var.data.shape
-
-        return Variable(var.dimensions, data, var.attributes, encoding)
+        return Variable(var.dimensions, RadolanArrayWrapper(name, self), var.attributes)
 
     def get_variables(self):
         return FrozenDict(
@@ -403,55 +385,6 @@ class RadolanDataStore(AbstractDataStore):
         encoding = {"unlimited_dims": {k for k, v in dims.items() if v is None}}
         return encoding
 
-    # def get_variables(self):
-    #     variables = []
-    #     product = self.attrs["producttype"]
-    #     pattrs = radolan._get_radolan_product_attributes(self.attrs)
-    #     radolan_grid_xy = rect.get_radolan_grid(self.attrs["nrow"], self.attrs["ncol"])
-    #     radolan_grid_ll = rect.get_radolan_grid(self.attrs["nrow"], self.attrs["ncol"],
-    #                                             wgs84=True)
-    #     xlocs = radolan_grid_xy[0, :, 0]
-    #     ylocs = radolan_grid_xy[:, 0, 1]
-    #     if self.data is not None:
-    #         if pattrs:
-    #             if "nodatamask" in self.attrs:
-    #                 self.data.flat[self.attrs["nodatamask"]] = pattrs["_FillValue"]
-    #             if "cluttermask" in self.attrs:
-    #                 self.data.flat[self.attrs["cluttermask"]] = pattrs["_FillValue"]
-    #
-    #     time_attrs = {
-    #         "standard_name": "time",
-    #         "units": "seconds since 1970-01-01T00:00:00Z",
-    #     }
-    #     time = np.array([self.attrs["datetime"].replace(tzinfo=dt.timezone.utc).timestamp()])
-    #     time_var = Variable(("time"), data=time, attrs=time_attrs)
-    #     variables.append(("time", time_var))
-    #
-    #     xattrs = {'units': 'km', 'long_name': 'x coordinate of projection',
-    #              'standard_name': 'projection_x_coordinate'}
-    #     x_var = Variable(('x',), xlocs, xattrs)
-    #     variables.append(("x", x_var))
-    #     yattrs = {'units': 'm', 'long_name': 'y coordinate of projection',
-    #              'standard_name': 'projection_y_coordinate'}
-    #     y_var = Variable(('y',), ylocs, yattrs)
-    #     variables.append(("y", y_var))
-    #
-    #     lon_var = Variable(('y', 'x'), data=radolan_grid_ll[..., 0],
-    #                        attrs={'long_name': 'longitude', 'units': 'degrees_east'})
-    #     lat_var = Variable(('y', 'x'), data=radolan_grid_ll[..., 1],
-    #                        attrs={'long_name': 'latitude', 'units': 'degrees_north'})
-    #     variables.append(("lon", lon_var))
-    #     variables.append(("lat", lat_var))
-    #
-    #     pattrs.update({"long_name": product, "coordinates": "lat lon y x time"})
-    #     data_var = Variable(('time', 'y', 'x'), data=self.data[None, ...], attrs=pattrs)
-    #     variables.append((product, data_var))
-    #
-    #     return FrozenDict(variables)
-    #
-    # def get_attrs(self):
-    #     return Frozen(self.attrs)
-
 
 class RadolanBackendEntrypoint(BackendEntrypoint):
     def open_dataset(
@@ -466,13 +399,11 @@ class RadolanBackendEntrypoint(BackendEntrypoint):
         use_cftime=None,
         decode_timedelta=None,
         lock=None,
-        mmap=None,
     ):
 
         store = RadolanDataStore(
             filename_or_obj,
             lock=lock,
-            mmap=mmap,
         )
         store_entrypoint = StoreBackendEntrypoint()
         with close_on_error(store):
