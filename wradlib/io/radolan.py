@@ -30,11 +30,14 @@ import io
 import re
 import warnings
 
+import deprecation
 import numpy as np
 import xarray as xr
 
-from wradlib import util
+from wradlib.io.xarray import WradlibVariable
+from wradlib import util, version
 from wradlib.georef import rect
+
 
 # current DWD file naming pattern (2008) for example:
 # raa00-dx_10488-200608050000-drs---bin
@@ -697,6 +700,47 @@ def read_radolan_header(fid):
     return header
 
 
+def _fix_radolan_truncated_buffer(data, product):
+    if product in ["RX", "EX", "WX"]:
+        dtype = np.uint8
+    else:
+        dtype = np.uint16
+    isize = np.dtype(dtype).itemsize
+    fill_value = 250 if isize == 1 else 8192
+    if len(data) % isize:
+        data = data[:-1]
+    fill = np.full((size - len(data)) // isize, fill_value, dtype=dtype)
+    data += fill.tobytes()
+    return data
+
+
+def _process_radolan_data(data, attrs):
+
+    name = attrs["producttype"]
+    size = attrs["datasize"]
+    if name in ["PG", "PC"]:
+        attrs["nodataflag"] = 255
+        data = decode_radolan_runlength_array(data, attrs)
+        attrs["nodatamask"] = np.where(data == 255)[0]
+    elif name in ["RX", "EX", "WX"]:
+        data = np.frombuffer(data, dtype=np.uint8).view(dtype=np.uint8)
+        attrs["nodatamask"] = np.where(data == 250)[0]
+        attrs["cluttermask"] = np.where(data == 249)[0]
+    else:
+        data = np.frombuffer(data, dtype=np.uint8).view(dtype=np.uint16)
+        attrs["secondary"] = np.where(data & 0x1000)[0]
+        attrs["nodatamask"] = np.where(data & 0x2000)[0]
+        negative = np.where(data & 0x4000)[0]
+        attrs["cluttermask"] = np.where(data & 0x8000)[0]
+        data = data & 0xFFF
+        if name == "RD":
+            data[negative] = -data[negative]
+
+    data.shape = (attrs["nrow"], attrs["ncol"])
+
+    return data, attrs
+
+
 def read_radolan_composite(f, missing=-9999, loaddata=True, fillmissing=False):
     """Read quantitative radar composite format of the German Weather Service
 
@@ -783,47 +827,13 @@ def read_radolan_composite(f, missing=-9999, loaddata=True, fillmissing=False):
         # read the actual data
         indat = read_radolan_binary_array(fid, attrs["datasize"], **binarr_kwargs)
 
-        # helper function to fill truncated data with 'nodata' values
-        def _from_buffer(data, size, dtype):
-            if len(data) < size:
-                isize = np.dtype(dtype).itemsize
-                fill_value = 250 if isize == 1 else 8192
-                if len(data) % isize:
-                    data = data[:-1]
-                fill = np.full((size - len(data)) // isize, fill_value, dtype=dtype)
-                data += fill.tobytes()
-            return np.frombuffer(data, dtype).astype(dtype)
+        if fillmissing and len(indat) < attrs["datasize"] and attrs["producttype"] not in ["PG", "PC"]:
+            indat = _fix_radolan_truncated_buffer(indat, attrs["producttype"])
 
-    if attrs["producttype"] in ["RX", "EX", "WX"]:
-        # convert to 8bit integer
-        arr = _from_buffer(indat, attrs["datasize"], np.uint8)
-        attrs["nodatamask"] = np.where(arr == 250)[0]
-        attrs["cluttermask"] = np.where(arr == 249)[0]
-    elif attrs["producttype"] in ["PG", "PC"]:
-        arr = decode_radolan_runlength_array(indat, attrs)
-        attrs["nodatamask"] = np.where(arr == 255)[0]
-    else:
-        # convert to 16-bit integers
-        arr = _from_buffer(indat, attrs["datasize"], np.uint16)
-        # evaluate bits 13, 14, 15 and 16
-        attrs["secondary"] = np.where(arr & 0x1000)[0]
-        attrs["nodatamask"] = np.where(arr & 0x2000)[0]
-        negative = np.where(arr & 0x4000)[0]
-        attrs["cluttermask"] = np.where(arr & 0x8000)[0]
-        # mask out the last 4 bits
-        arr &= mask
-        # consider negative flag if product is RD (differences from adjustment)
-        if attrs["producttype"] == "RD":
-            # NOT TESTED, YET
-            arr[negative] = -arr[negative]
-
-    # anyway, bring it into right shape
-    arr = arr.reshape((attrs["nrow"], attrs["ncol"]))
+    arr, attrs = _process_radolan_data(indat, attrs)
 
     if loaddata == "xarray":
         arr = radolan_to_xarray(arr, attrs)
-    elif loaddata == "backend":
-        pass
     else:
         # apply precision factor
         # this promotes arr to float if precision is float
@@ -858,19 +868,24 @@ def _get_radolan_product_attributes(attrs):
 
     if product in ["RX", "EX", "WX", "WN"]:
         pattrs.update(radolan["dBZ"])
-    elif product in ["RY", "RZ", "EY", "EZ", "YW"]:
+    elif product in ["RY",
+                     "RZ",
+                     "RW",
+                     "RH",
+                     "RB",
+                     "RL",
+                     "RU",
+                     "EH",
+                     "EB",
+                     "EW",
+                     "EY",
+                     "EZ",
+                     "YW",
+                     ]:
         pattrs.update(radolan["RR"])
         scale_factor = np.float32(precision * 3600 / interval)
         pattrs.update({"scale_factor": scale_factor})
     elif product in [
-        "RH",
-        "RB",
-        "RW",
-        "RL",
-        "RU",
-        "EH",
-        "EB",
-        "EW",
         "SQ",
         "SH",
         "SF",
@@ -889,6 +904,13 @@ def _get_radolan_product_attributes(attrs):
     return pattrs
 
 
+@deprecation.deprecated(
+    deprecated_in="1.10",
+    removed_in="2.0",
+    current_version=version.version,
+    details="Use `xr.open_dataset(fname, engine='radolan')` or "
+            "`xr.open_mfdataset(flist, engine='radolan')` instead.",
+)
 def radolan_to_xarray(data, attrs):
     """Converts RADOLAN data to xarray Dataset
 
@@ -932,7 +954,7 @@ radolan = {
         "add_offset": np.float32(-32.5),
         "valid_min": np.int32(0),
         "valid_max": np.int32(255),
-        "_FillValue": np.int32(255),
+        "_FillValue": np.array([249, 250, 255], dtype=np.int32),
         "standard_name": "equivalent_reflectivity_factor",
         "long_name": "equivalent_reflectivity_factor",
         "unit": "dBZ",
@@ -941,7 +963,7 @@ radolan = {
         "add_offset": np.float32(0),
         "valid_min": np.int32(0),
         "valid_max": np.int32(4095),
-        "_FillValue": np.int32(65535),
+        "_FillValue": np.array([2490, 2500, 65535], dtype=np.int32),
         "standard_name": "rainfall_rate",
         "long_name": "rainfall_rate",
         "unit": "mm h-1",
@@ -950,7 +972,7 @@ radolan = {
         "add_offset": np.float32(0),
         "valid_min": np.int32(0),
         "valid_max": np.int32(4095),
-        "_FillValue": np.int32(65535),
+        "_FillValue": np.array([2490, 2500, 65535], dtype=np.int32),
         "standard_name": "rainfall_amount",
         "long_name": "rainfall_amount",
         "unit": "mm",
@@ -962,5 +984,119 @@ radolan = {
     },
 }
 
+
+class RadolanFile(object):
+    """A file object for RADOLAN data.
+
+    This class maps RADOLAN data to NetCDF style dimensions, variables and attributes.
+    """
+    def __init__(self, filename):
+        if hasattr(filename, "seek"):
+            self.fp = filename
+            self.filename = "None"
+        else:
+            self.filename = filename
+            mode = "r"
+            self.fp = open(self.filename, f"{mode}b")
+
+        self.dimensions = {}
+        self.variables = {}
+        self.attributes = {}
+        self._read()
+
+    def _read(self):
+        # read and parse header
+        header = read_radolan_header(self.fp)
+        attrs = parse_dwd_composite_header(header)
+
+        pattrs = _get_radolan_product_attributes(attrs)
+
+        name = attrs.get("producttype")
+        size = attrs.get("datasize")
+        self.dimensions["y"] = attrs.get("nrow")
+        self.dimensions["x"] = attrs.get("ncol")
+
+        pattrs.update(
+            dict(
+                long_name=name,
+                coordinates="time y x",
+                maxrange=attrs.get("maxrange"),
+                intervalseconds=attrs.get("intervalseconds"),
+            )
+        )
+
+        # read and treat data
+        indat = read_radolan_binary_array(self.fp, size, raise_on_error=False)
+        data, attrs = _process_radolan_data(indat, attrs)
+
+        self.variables[name] = WradlibVariable(self.dimensions, data=data, attrs=pattrs)
+
+        # coordinate variables
+        time_attrs = {
+            "standard_name": "time",
+            "units": "seconds since 1970-01-01T00:00:00Z",
+        }
+        time = np.array(
+            [attrs.get("datetime").replace(tzinfo=dt.timezone.utc).timestamp()]
+        )
+        time_var = WradlibVariable("time", data=time, attrs=time_attrs)
+        self.variables["time"] = time_var
+
+        xlocs, ylocs = rect.get_radolan_coordinates(
+            self.dimensions["y"], self.dimensions["x"], trig=True
+        )
+        xattrs = {
+            "units": "km",
+            "long_name": "x coordinate of projection",
+            "standard_name": "projection_x_coordinate",
+        }
+        x_var = WradlibVariable(("x",), xlocs, xattrs)
+        self.variables["x"] = x_var
+
+        yattrs = {
+            "units": "km",
+            "long_name": "y coordinate of projection",
+            "standard_name": "projection_y_coordinate",
+        }
+        y_var = WradlibVariable(("y",), ylocs, yattrs)
+        self.variables["y"] = y_var
+
+        # fix global attributes
+        remove = [
+            "producttype",
+            "datetime",
+            "datasize",
+            "precision",
+            "nrow",
+            "ncol",
+            "maxrange",
+            "intervalseconds",
+        ]
+        [attrs.pop(key, None) for key in remove]
+        self.attributes.update(attrs)
+
+    def close(self):
+        """Closes the Radolan file."""
+        if hasattr(self, "fp") and not self.fp.closed:
+            self.fp.close()
+
+    __del__ = close
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
+
+
+# todo: use this in radolan.get_radolan_filehandle
+def _open_radolan(filename):
+    import gzip
+
+    if isinstance(filename, str) and filename.endswith(".gz"):
+        return RadolanFile(gzip.open(filename))
+    if isinstance(filename, bytes):
+        filename = io.BytesIO(filename)
+    return RadolanFile(filename)
 
 

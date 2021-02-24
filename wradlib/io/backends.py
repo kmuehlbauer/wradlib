@@ -70,160 +70,7 @@ from .xarray import (
     maybe_decode_bytes,
 )
 
-try:
-    import h5netcdf
-
-    has_h5netcdf = True
-except ModuleNotFoundError:
-    has_h5netcdf = False
-
-# FIXME: Add a dedicated lock
 RADOLAN_LOCK = SerializableLock()
-
-
-# class RadolanArrayWrapper(BackendArray):
-#     def __init__(self, datastore, array):
-#         self.datastore = datastore
-#         self.shape = array.shape
-#         self.dtype = array.dtype
-#         self.array = array
-#
-#     def __getitem__(self, key):
-#         return indexing.explicit_indexing_adapter(
-#             key, self.shape, indexing.IndexingSupport.BASIC, self._getitem
-#         )
-#
-#     def _getitem(self, key):
-#         with self.datastore.lock:
-#             return self.array[key]
-
-
-class WradlibVariable(object):
-    def __init__(self, dims, data, attrs):
-        self._dimensions = dims
-        self._data = data
-        self._attrs = attrs
-
-    @property
-    def dimensions(self):
-        return self._dimensions
-
-    @property
-    def data(self):
-        return self._data
-
-    @property
-    def attributes(self):
-        return self._attrs
-
-
-class WradlibDataset(object):
-    def __init__(self, dims, vars, attrs, encoding):
-        self._dimensions = dims
-        self._variables = vars
-        self._attrs = attrs
-        self._encoding = encoding
-
-    @property
-    def dimensions(self):
-        return self._dimensions
-
-    @property
-    def variables(self):
-        return self._variables
-
-    @property
-    def attributes(self):
-        return self._attrs
-
-    @property
-    def encoding(self):
-        return self._encoding
-
-
-def radolan_to_xarray(data, attrs):
-    """Converts RADOLAN data to xarray Dataset
-
-    Parameters
-    ----------
-    data : :func:`numpy:numpy.array`
-        array of shape (number of rows, number of columns)
-    attrs : dict
-        dictionary of metadata information from the file header
-
-    Returns
-    -------
-    dset : xarray.Dataset
-        RADOLAN data and coordinates
-    """
-    product = attrs["producttype"]
-    pattrs = radolan._get_radolan_product_attributes(attrs)
-    radolan_grid_xy = rect.get_radolan_grid(attrs["nrow"], attrs["ncol"])
-    radolan_grid_ll = rect.get_radolan_grid(attrs["nrow"], attrs["ncol"], wgs84=True)
-    xlocs = radolan_grid_xy[0, :, 0]
-    ylocs = radolan_grid_xy[:, 0, 1]
-    if pattrs:
-        if "nodatamask" in attrs:
-            data.flat[attrs["nodatamask"]] = pattrs["_FillValue"]
-        if "cluttermask" in attrs:
-            data.flat[attrs["cluttermask"]] = pattrs["_FillValue"]
-
-    time_attrs = {
-        "standard_name": "time",
-        "units": "seconds since 1970-01-01T00:00:00Z",
-    }
-    variables = []
-    time = np.array([attrs["datetime"].replace(tzinfo=dt.timezone.utc).timestamp()])
-    time_var = WradlibVariable(("time"), data=time, attrs=time_attrs)
-    variables.append(("time", time_var))
-
-    xattrs = {
-        "units": "km",
-        "long_name": "x coordinate of projection",
-        "standard_name": "projection_x_coordinate",
-    }
-    x_var = WradlibVariable(("x",), xlocs, xattrs)
-    variables.append(("x", x_var))
-    yattrs = {
-        "units": "km",
-        "long_name": "y coordinate of projection",
-        "standard_name": "projection_y_coordinate",
-    }
-    y_var = WradlibVariable(("y",), ylocs, yattrs)
-    variables.append(("y", y_var))
-
-    lon_var = WradlibVariable(
-        ("y", "x"),
-        data=radolan_grid_ll[..., 0],
-        attrs={"long_name": "longitude", "units": "degrees_east"},
-    )
-    lat_var = WradlibVariable(
-        ("y", "x"),
-        data=radolan_grid_ll[..., 1],
-        attrs={"long_name": "latitude", "units": "degrees_north"},
-    )
-    variables.append(("lon", lon_var))
-    variables.append(("lat", lat_var))
-
-    pattrs.update({"long_name": product, "coordinates": "lat lon y x time"})
-    data_var = WradlibVariable(("time", "y", "x"), data=data[None, ...], attrs=pattrs)
-    variables.append((product, data_var))
-    # data_arr = DataArray(data, coords={
-    #     "y": ylocs,
-    #     "x": xlocs},
-    #     dims=["y", "x"])
-    # dset = Dataset({product: (["y", "x"], data_arr, pattrs)},
-    #                coords={
-    #                    "x": (["x"], xlocs, xattrs),
-    #                    "y": (["y"], ylocs, yattrs),
-    #                    "lon": (["y", "x"], radolan_grid_ll[..., 0], {'long_name': 'longitude', 'units': 'degrees_east'}),
-    #                    "lat": (["y", "x"], radolan_grid_ll[..., 0],
-    #                            {'long_name': 'latitude', 'units': 'degrees_north'}),
-    #                    "time": (["time"], time, time_attrs)
-    #                })
-
-    return WradlibDataset({}, dict(variables), {}, {})
-
 
 class RadolanArrayWrapper(BackendArray):
     def __init__(self, variable_name, datastore):
@@ -243,122 +90,22 @@ class RadolanArrayWrapper(BackendArray):
         return np.array(data, dtype=self.dtype, copy=False)
 
 
-class radolan_file(object):
-    def __init__(self, filename):
-        if hasattr(filename, 'seek'):
-            self.fp = filename
-            self.filename = 'None'
-        else:
-            self.filename = filename
-            mode = "r"
-            self.fp = open(self.filename, f"{mode}b")
-
-        self.dimensions = {}
-        self.variables = {}
-        self.attributes = {}
-        self._read()
-
-    def _read(self):
-        header = radolan.read_radolan_header(self.fp)
-        attrs = radolan.parse_dwd_composite_header(header)
-
-        #offset = len(header) + 1
-        size = attrs["datasize"]
-        shape = (attrs["nrow"], attrs["ncol"])
-        self.dimensions["x"] = attrs["ncol"]
-        self.dimensions["y"] = attrs["nrow"]
-        dims = ("y", "x")
-        name = attrs["producttype"]
-        #pos = self.fp.tell()
-        #self.fp.seek(offset)
-        data = np.frombuffer(self.fp.read(size), dtype=np.uint8).view(dtype=np.uint16)
-        #self.fp.seek(pos)
-        data.shape = shape
-        pattrs = radolan._get_radolan_product_attributes(attrs)
-        pattrs.update({"long_name": name, "coordinates": "time y x"})
-        mask = 0xFFF
-
-        attrs["secondary"] = np.where(data & 0x1000)[0]
-        attrs["nodatamask"] = np.where(data & 0x2000)[0]
-        attrs["cluttermask"] = np.where(data & 0x8000)[0]
-        self.variables[name] = WradlibVariable(dims, data & mask, attrs=pattrs)
-
-        xlocs, ylocs = rect.get_radolan_coordinates(attrs["nrow"], attrs["ncol"], trig=True)
-        #if pattrs:
-        #    if "nodatamask" in attrs:
-        #        data.flat[attrs["nodatamask"]] = pattrs["_FillValue"]
-        #    if "cluttermask" in attrs:
-        #        data.flat[attrs["cluttermask"]] = pattrs["_FillValue"]
-
-        time_attrs = {
-            "standard_name": "time",
-            "units": "seconds since 1970-01-01T00:00:00Z",
-        }
-        time = np.array([attrs["datetime"].replace(tzinfo=dt.timezone.utc).timestamp()])
-        time_var = WradlibVariable("time", data=time, attrs=time_attrs)
-        self.variables["time"] = time_var
-
-        xattrs = {
-            "units": "km",
-            "long_name": "x coordinate of projection",
-            "standard_name": "projection_x_coordinate",
-        }
-        x_var = WradlibVariable(("x",), xlocs, xattrs)
-        self.variables["x"] = x_var
-        yattrs = {
-            "units": "m",
-            "long_name": "y coordinate of projection",
-            "standard_name": "projection_y_coordinate",
-        }
-        y_var = WradlibVariable(("y",), ylocs, yattrs)
-        self.variables["y"] = y_var
-
-        # lon_var = WradlibVariable(
-        #     ("y", "x"),
-        #     data=radolan_grid_ll[..., 0],
-        #     attrs={"long_name": "longitude", "units": "degrees_east"},
-        # )
-        # lat_var = WradlibVariable(
-        #     ("y", "x"),
-        #     data=radolan_grid_ll[..., 1],
-        #     attrs={"long_name": "latitude", "units": "degrees_north"},
-        # )
-        # self.variables["lon"] = lon_var
-        # self.variables["lat"] = lat_var
-
-        self.attributes.update(attrs)
-
-
-# todo: use this in radolan.get_radolan_filehandle
-def _open_radolan(filename):
-    import gzip
-    if isinstance(filename, str) and filename.endswith(".gz"):
-        return radolan_file(gzip.open(filename))
-
-    if isinstance(filename, bytes):
-        filename = io.BytesIO(filename)
-
-    return radolan_file(filename)
-
-
 class RadolanDataStore(AbstractDataStore):
+    """Implements the ``xr.AbstractDataStore`` read-only API for a RADOLAN file.
     """
-    Implements the ``xr.AbstractDataStore`` read-only API for a Radolan file.
-    """
-
     def __init__(self, filename_or_obj, lock=None):
         if lock is None:
             lock = RADOLAN_LOCK
         self.lock = ensure_lock(lock)
         if isinstance(filename_or_obj, str):
             manager = CachingFileManager(
-                _open_radolan,
+                radolan._open_radolan,
                 filename_or_obj,
                 lock=lock,
             )
         else:
-            radolan_dataset = _open_radolan(filename_or_obj)
-            manager = DummyFileManager(radolan_dataset)
+            dataset = radolan._open_radolan(filename_or_obj)
+            manager = DummyFileManager(dataset)
 
         self._manager = manager
 
@@ -385,6 +132,8 @@ class RadolanDataStore(AbstractDataStore):
         encoding = {"unlimited_dims": {k for k, v in dims.items() if v is None}}
         return encoding
 
+    def close(self, **kwargs):
+        self._manager.close(**kwargs)
 
 class RadolanBackendEntrypoint(BackendEntrypoint):
     def open_dataset(

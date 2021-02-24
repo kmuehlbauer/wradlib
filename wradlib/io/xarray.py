@@ -4789,3 +4789,22 @@ def _get_odim_root_attributes(nch, grps):
         attrs["instrument"] = grps["how"].attrs["host_name"]
 
     return attrs
+
+
+class WradlibVariable(object):
+    def __init__(self, dims, data, attrs):
+        self._dimensions = dims
+        self._data = data
+        self._attrs = attrs
+
+    @property
+    def dimensions(self):
+        return self._dimensions
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def attributes(self):
+        return self._attrs
