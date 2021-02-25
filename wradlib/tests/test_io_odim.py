@@ -12,7 +12,7 @@ import xarray as xr
 
 from wradlib import io, util
 
-from . import has_data, requires_data
+from . import file_or_filelike, get_wradlib_data_file, has_data, requires_data
 
 
 def create_a1gate(i):
@@ -243,25 +243,6 @@ def create_coords(i, nrays=360):
         }
     )
     return ds
-
-
-@pytest.fixture(params=["file", "filelike"])
-def file_or_filelike(request):
-    return request.param
-
-
-@contextlib.contextmanager
-def get_wradlib_data_file(file, file_or_filelike):
-    datafile = util.get_wradlib_data_file(file)
-    if file_or_filelike == "filelike":
-        _open = open
-        if datafile[-3:] == ".gz":
-            gzip = util.import_optional("gzip")
-            _open = gzip.open
-        with _open(datafile, mode="r+b") as f:
-            yield sio.BytesIO(f.read())
-    else:
-        yield datafile
 
 
 @contextlib.contextmanager
