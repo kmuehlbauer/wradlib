@@ -270,6 +270,7 @@ def get_wradlib_data_file(file, file_or_filelike):
             _open = gzip.open
         with _open(datafile, mode="r+b") as f:
             yield sio.BytesIO(f.read())
+            #yield f.read()
     else:
         yield datafile
 
@@ -984,6 +985,44 @@ class TestRadolan:
             fdata = sio.BytesIO(fh.read(20002))
             data, attrs = io.radolan.read_radolan_composite(fdata, fillmissing=True)
             assert data.shape == (900, 900)
+
+    @requires_data
+    def test_radolan_file(self, file_or_filelike):
+        filename = "radolan/misc/raa01-rw_10000-1408030950-dwd---bin.gz"
+        test_attrs = {
+            "maxrange": "150 km",
+            "radarlocations": [
+                "boo",
+                "ros",
+                "emd",
+                "hnr",
+                "pro",
+                "ess",
+                "asd",
+                "neu",
+                "nhb",
+                "oft",
+                "tur",
+                "isn",
+                "fbg",
+                "mem",
+            ],
+            "nrow": 900,
+            "intervalseconds": 3600,
+            "precision": 0.1,
+            "datetime": datetime.datetime(2014, 8, 3, 9, 50),
+            "ncol": 900,
+            "radolanversion": "2.13.1",
+            "producttype": "RW",
+            "datasize": 1620000,
+            "radarid": "10000",
+        }
+        with get_wradlib_data_file(filename, file_or_filelike) as rwfile:
+            radfile = io.radolan.radolan_file(rwfile)
+            assert radfile.dtype == np.uint16
+            assert radfile.product == "RW"
+            assert radfile.attrs == test_attrs
+            assert radfile.data.shape == (900, 900)
 
 
 class TestRainbow:

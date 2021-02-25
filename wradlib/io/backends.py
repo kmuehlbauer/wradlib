@@ -38,6 +38,7 @@ import sys
 from pathlib import Path
 
 import numpy as np
+import h5netcdf
 import xarray
 from xarray import Dataset, decode_cf, merge
 from xarray.backends import NetCDF4DataStore, H5NetCDFStore
@@ -72,6 +73,7 @@ from .xarray import (
 
 RADOLAN_LOCK = SerializableLock()
 
+
 class RadolanArrayWrapper(BackendArray):
     def __init__(self, variable_name, datastore):
         self.datastore = datastore
@@ -93,18 +95,21 @@ class RadolanArrayWrapper(BackendArray):
 class RadolanDataStore(AbstractDataStore):
     """Implements the ``xr.AbstractDataStore`` read-only API for a RADOLAN file.
     """
-    def __init__(self, filename_or_obj, lock=None):
+    def __init__(self, filename_or_obj, lock=None, fillmissing=False, copy=False):
         if lock is None:
             lock = RADOLAN_LOCK
         self.lock = ensure_lock(lock)
         if isinstance(filename_or_obj, str):
             manager = CachingFileManager(
-                radolan._open_radolan,
+                radolan.radolan_file,
                 filename_or_obj,
                 lock=lock,
+                kwargs=dict(fillmissing=fillmissing, copy=copy),
             )
         else:
-            dataset = radolan._open_radolan(filename_or_obj)
+            if isinstance(filename_or_obj, bytes):
+                filename_or_obj = io.BytesIO(filename_or_obj)
+            dataset = radolan.radolab_file(filename_or_obj, fillmissing=fillmissing, copy=copy)
             manager = DummyFileManager(dataset)
 
         self._manager = manager
@@ -135,6 +140,7 @@ class RadolanDataStore(AbstractDataStore):
     def close(self, **kwargs):
         self._manager.close(**kwargs)
 
+
 class RadolanBackendEntrypoint(BackendEntrypoint):
     def open_dataset(
         self,
@@ -148,11 +154,15 @@ class RadolanBackendEntrypoint(BackendEntrypoint):
         use_cftime=None,
         decode_timedelta=None,
         lock=None,
+        fillmissing=False,
+        copy=False,
     ):
 
         store = RadolanDataStore(
             filename_or_obj,
             lock=lock,
+            fillmissing=fillmissing,
+            copy=copy,
         )
         store_entrypoint = StoreBackendEntrypoint()
         with close_on_error(store):
@@ -506,7 +516,47 @@ class CfRadial2BackendEntrypoint(BackendEntrypoint):
         return ds
 
 
-def open_dataset(filename_or_obj, **kwargs):
+def open_dataset(filename_or_obj, engine=None, **kwargs):
+    """Open radar data set.
+
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    engine : {"radolan", "odim", "gamic", "cfradial"}
+        Engine to use when reading files.
+
+
+    """
+    engine = kwargs.pop("engine", None)
+    if engine is None:
+        raise TypeError("Missing `engine` keyword argument.")
+
+    return getattr(locals()[f"open_{engine}_dataset"])(filename_or_obj, **kwargs)
+
+
+def open_mfdataset(filename_or_obj, engine=None, **kwargs):
+    """Open radar data set.
+
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    engine : {"radolan", "odim", "gamic", "cfradial"}
+        Engine to use when reading files.
+
+
+    """
+    engine = kwargs.pop("engine", None)
+    if engine is None:
+        raise TypeError("Missing `engine` keyword argument.")
+
+    return getattr(locals()[f"open_{engine}_mfdataset"])(filename_or_obj, **kwargs)
+
+
+def open_dataset2(filename_or_obj, **kwargs):
     """Open and decode a radar sweep or volume from a file or file-like object.
 
     This function uses ``xarray.open_dataset`` under the hood. Please refer for
@@ -580,7 +630,7 @@ def open_dataset(filename_or_obj, **kwargs):
     return ds
 
 
-def open_mfdataset(paths, **kwargs):
+def open_mfdataset2(paths, **kwargs):
     """Open multiple radar files as a single radar sweep dataset or radar volume.
 
     This function uses ``xarray.open_mfdataset`` under the hood. Please refer for
