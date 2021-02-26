@@ -272,17 +272,13 @@ class OdimBackendEntrypoint(BackendEntrypoint):
         ) as store:
 
             root = store.root._root[group]
-            print("root:", root)
             groups = root.groups
-            print("groups:", groups)
             variables = [k for k in groups if "data" in k]
-            print("variables:", variables)
             vars_idx = np.argsort([int(v[len("data") :]) for v in variables])
             variables = np.array(variables)[vars_idx].tolist()
             ds_list = ["/".join([store._group, var]) for var in variables]
             store.close()
 
-        print("ds_list:", ds_list)
         stores = []
         for grp in ds_list:
             if isinstance(filename_or_obj, io.IOBase):

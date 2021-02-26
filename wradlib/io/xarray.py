@@ -948,6 +948,7 @@ def to_odim(volume, filename, timestep=0):
     h5.close()
 
 
+# todo: implement _fix_angle
 class OdimH5NetCDFMetadata(object):
     """Wrapper around OdimH5 data fileobj for easy access of metadata.
 
@@ -1225,48 +1226,12 @@ class OdimH5NetCDFMetadata(object):
         return self._get_ray_times()
 
 
-def _preprocess_moment(ds, mom, non_uniform_shape):
-
-    attrs = mom._decode(ds.data.attrs)
-    quantity = mom.quantity
-
-    # extract and translate attributes to cf
-    what = mom.what
-    attrs["scale_factor"] = what["gain"]
-    attrs["add_offset"] = what["offset"]
-    attrs["_FillValue"] = what["nodata"]
-    attrs["_Undetect"] = what["undetect"]
-
-    if mom.parent.decode_coords:
-        attrs["coordinates"] = "elevation azimuth range"
-
-    # handle non-standard moment names
-    try:
-        mapping = moments_mapping[quantity]
-    except KeyError:
-        pass
-    else:
-        attrs.update({key: mapping[key] for key in moment_attrs})
-
-    ds["data"] = ds["data"].assign_attrs(attrs)
-
-    # fix dimensions
-    dims = sorted(list(ds.dims.keys()), key=lambda x: int(x[len("phony_dim_") :]))
-
-    ds = ds.rename(
-        {"data": quantity, dims[0]: mom.parent._dim0[0], dims[1]: mom.parent._dim1}
-    )
-
-    # apply coordinates to dataset if source moments have different shapes
-    # and correct for it
-    if mom.parent.decode_coords & non_uniform_shape:
-        coords = mom.parent._get_coords()
-        ds = ds.assign_coords(coords.coords)
-        if mom.parent._dim0[0] == "azimuth":
-            ds = ds.sortby(mom.parent._dim0[0])
-            ds = ds.pipe(_reindex_angle, mom.parent)
-
-    return ds
+def _fix_angle(da):
+    # fix elevation outliers
+    if len(set(da.values)) > 1:
+        med = da.median(skipna=True)
+        da = da.where(da == med).fillna(med)
+    return da
 
 
 def _reindex_angle(ds, store=None, force=False):
@@ -1327,6 +1292,50 @@ def _reindex_angle(ds, store=None, force=False):
     return ds
 
 
+def _preprocess_moment(ds, mom, non_uniform_shape):
+
+    attrs = mom._decode(ds.data.attrs)
+    quantity = mom.quantity
+
+    # extract and translate attributes to cf
+    what = mom.what
+    attrs["scale_factor"] = what["gain"]
+    attrs["add_offset"] = what["offset"]
+    attrs["_FillValue"] = what["nodata"]
+    attrs["_Undetect"] = what["undetect"]
+
+    if mom.parent.decode_coords:
+        attrs["coordinates"] = "elevation azimuth range"
+
+    # handle non-standard moment names
+    try:
+        mapping = moments_mapping[quantity]
+    except KeyError:
+        pass
+    else:
+        attrs.update({key: mapping[key] for key in moment_attrs})
+
+    ds["data"] = ds["data"].assign_attrs(attrs)
+
+    # fix dimensions
+    dims = sorted(list(ds.dims.keys()), key=lambda x: int(x[len("phony_dim_") :]))
+
+    ds = ds.rename(
+        {"data": quantity, dims[0]: mom.parent._dim0[0], dims[1]: mom.parent._dim1}
+    )
+
+    # apply coordinates to dataset if source moments have different shapes
+    # and correct for it
+    if mom.parent.decode_coords & non_uniform_shape:
+        coords = mom.parent._get_coords()
+        ds = ds.assign_coords(coords.coords)
+        if mom.parent._dim0[0] == "azimuth":
+            ds = ds.sortby(mom.parent._dim0[0])
+            ds = ds.pipe(_reindex_angle, mom.parent)
+
+    return ds
+
+
 def _reindex_angle2(ds, sweep, force=False):
     # Todo: The current code assumes to have PPI's of 360deg and RHI's of 90deg,
     #       make this work also for sectorized measurements
@@ -1383,12 +1392,7 @@ def _reindex_angle2(ds, sweep, force=False):
     return ds
 
 
-def _fix_angle(da):
-    # fix elevation outliers
-    if len(set(da.values)) > 1:
-        med = da.median(skipna=True)
-        da = da.where(da == med).fillna(med)
-    return da
+
 
 
 def _open_mfmoments(
