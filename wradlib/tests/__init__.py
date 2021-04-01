@@ -34,6 +34,11 @@ requires_xarray_backend_api = pytest.mark.skipif(
 )
 
 
+@pytest.fixture(params=["file", "filelike"])
+def file_or_filelike(request):
+    return request.param
+
+
 @contextlib.contextmanager
 def get_wradlib_data_file(file, file_or_filelike):
     datafile = util.get_wradlib_data_file(file)
