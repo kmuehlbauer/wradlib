@@ -193,6 +193,7 @@ def setup_package():
         packages=find_packages(),
         entry_points={
             "xarray.backends": [
+                "gamic = wradlib.io.backends:GamicBackendEntrypoint",
                 "radolan = wradlib.io.backends:RadolanBackendEntrypoint",
                 "odim = wradlib.io.backends:OdimBackendEntrypoint",
             ]

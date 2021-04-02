@@ -1235,6 +1235,321 @@ class OdimH5NetCDFMetadata(object):
         return self._get_ray_times()
 
 
+class GamicH5NetCDFMetadata(object):
+    """Wrapper around OdimH5 data fileobj for easy access of metadata.
+
+    Parameters
+    ----------
+    fileobj : file-like
+        h5netcdf filehandle.
+    group : str
+        odim group to acquire
+
+    Returns
+    -------
+    object : metadata object
+    """
+
+    def __init__(self, fileobj, group):
+        self._root = fileobj
+        self._group = group
+
+    @property
+    def first_dim(self):
+        dim, _ = self._get_fixed_dim_and_angle()
+        return dim
+
+    def get_variable_dimensions(self, dims):
+        dimensions = []
+        for n, _ in enumerate(dims):
+            if n == 0:
+                dimensions.append(self.first_dim)
+            elif n == 1:
+                dimensions.append("range")
+            else:
+                pass
+        return tuple(dimensions)
+
+    # @property
+    # def coordinates(self):
+    #     azimuth = self.azimuth
+    #     elevation = self.elevation
+    #     a1gate = self.a1gate
+    #     rtime = self.ray_times
+    #     dim, angle = self.fixed_dim_and_angle
+    #     angle_res = np.round(np.nanmedian(np.diff(locals()[dim])), decimals=1)
+    #
+    #     dims = ("azimuth", "elevation")
+    #     if dim == dims[1]:
+    #         dims = (dims[1], dims[0])
+    #
+    #     az_attrs["a1gate"] = a1gate
+    #
+    #     if dim == "azimuth":
+    #         az_attrs["angle_res"] = angle_res
+    #     else:
+    #         el_attrs["angle_res"] = angle_res
+    #
+    #     sweep_mode = "azimuth_surveillance" if dim == "azimuth" else "rhi"
+    #
+    #     rtime_attrs = {
+    #         "units": "seconds since 1970-01-01T00:00:00Z",
+    #         "standard_name": "time",
+    #     }
+    #
+    #     range_data, cent_first, bin_range = self.range
+    #     range_attrs["meters_to_center_of_first_gate"] = cent_first
+    #     range_attrs["meters_between_gates"] = bin_range
+    #
+    #     lon_attrs = dict(
+    #         long_name="longitude", units="degrees_east", standard_name="longitude"
+    #     )
+    #     lat_attrs = dict(
+    #         long_name="latitude",
+    #         units="degrees_north",
+    #         positive="up",
+    #         standard_name="latitude",
+    #     )
+    #     alt_attrs = dict(long_name="altitude", units="meters", standard_name="altitude")
+    #
+    #     lon, lat, alt = self.site_coords
+    #
+    #     coordinates = dict(
+    #         azimuth=Variable((dims[0],), azimuth, az_attrs),
+    #         elevation=Variable((dims[0],), elevation, el_attrs),
+    #         rtime=Variable((dims[0],), rtime, rtime_attrs),
+    #         range=Variable(("range",), range_data, range_attrs),
+    #         time=Variable((), self.time, time_attrs),
+    #         sweep_mode=Variable((), sweep_mode),
+    #         longitude=Variable((), lon, lon_attrs),
+    #         latitude=Variable((), lat, lat_attrs),
+    #         altitude=Variable((), alt, alt_attrs),
+    #     )
+    #     return coordinates
+
+    @property
+    def site_coords(self):
+        return self._get_site_coords()
+
+    @property
+    def time(self):
+        return self._get_time()
+
+    @property
+    def fixed_dim_and_angle(self):
+        return self._get_fixed_dim_and_angle()
+
+    @property
+    def range(self):
+        return self._get_range()
+
+    @property
+    def what(self):
+        return self._get_dset_what()
+
+    # def _get_azimuth_how(self):
+    #     grp = self._group.split("/")[0]
+    #     startaz = self._root[grp]["how"].attrs["startazA"]
+    #     stopaz = self._root[grp]["how"].attrs["stopazA"]
+    #     zero_index = np.where(stopaz < startaz)
+    #     stopaz[zero_index[0]] += 360
+    #     azimuth_data = (startaz + stopaz) / 2.0
+    #     return azimuth_data
+    #
+    # def _get_azimuth_where(self):
+    #     grp = self._group.split("/")[0]
+    #     nrays = self._root[grp]["where"].attrs["nrays"]
+    #     res = 360.0 / nrays
+    #     azimuth_data = np.arange(res / 2.0, 360.0, res, dtype="float32")
+    #     return azimuth_data
+
+    def _get_fixed_dim_and_angle(self):
+        how = self._root[self._group]["how"].attrs
+        dims = {0: "elevation", 1: "azimuth"}
+        try:
+            dim = 1
+            angle = np.round(how[dims[0]], decimals=1)
+        except KeyError:
+            dim = 0
+            angle = np.round(how[dims[1]], decimals=1)
+
+        return dims[dim], angle
+        # grp = self._group.split("/")[0]
+        # dim = "elevation"
+        #
+        # # try RHI first
+        # angle_keys = ["az_angle", "azangle"]
+        # angle = None
+        # for ak in angle_keys:
+        #     angle = self._root[grp]["where"].attrs.get(ak, None)
+        #     if angle is not None:
+        #         break
+        # if angle is None:
+        #     dim = "azimuth"
+        #     angle = self._root[grp]["where"].attrs["elangle"]
+        #
+        # angle = np.round(angle, decimals=1)
+        # return dim, angle
+
+    # def _get_elevation_how(self):
+    #     grp = self._group.split("/")[0]
+    #     startaz = self._root[grp]["how"].attrs["startelA"]
+    #     stopaz = self._root[grp]["how"].attrs["stopelA"]
+    #     elevation_data = (startaz + stopaz) / 2.0
+    #     return elevation_data
+    #
+    # def _get_elevation_where(self):
+    #     grp = self._group.split("/")[0]
+    #     nrays = self._root[grp]["where"].attrs["nrays"]
+    #     elangle = self._root[grp]["where"].attrs["elangle"]
+    #     elevation_data = np.ones(nrays, dtype="float32") * elangle
+    #     return elevation_data
+    #
+    # def _get_time_how(self):
+    #     grp = self._group.split("/")[0]
+    #     startT = self._root[grp]["how"].attrs["startazT"]
+    #     if isinstance(startT, np.array):
+    #         startT = startT.item().decode()
+    #     stopT = self._root[grp]["how"].attrs["stopazT"]
+    #     if isinstance(stopT, np.array):
+    #         stopT = stopT.item().decode()
+    #     time_data = (startT + stopT) / 2.0
+    #     return time_data
+    #
+    # def _get_time_what(self, nrays=None):
+    #     grp = self._group.split("/")[0]
+    #     what = self._root[grp]["what"].attrs
+    #     startdate = what["startdate"].item().decode()
+    #     starttime = what["starttime"].item().decode()
+    #     enddate = what["enddate"].item().decode()
+    #     endtime = what["endtime"].item().decode()
+    #     start = dt.datetime.strptime(startdate + starttime, "%Y%m%d%H%M%S")
+    #     end = dt.datetime.strptime(enddate + endtime, "%Y%m%d%H%M%S")
+    #     start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+    #     end = end.replace(tzinfo=dt.timezone.utc).timestamp()
+    #     if nrays is None:
+    #         nrays = self._root[grp]["where"].attrs["nrays"]
+    #     if start == end:
+    #         import warnings
+    #
+    #         warnings.warn(
+    #             "WRADLIB: Equal ODIM `starttime` and `endtime` "
+    #             "values. Can't determine correct sweep start-, "
+    #             "end- and raytimes.",
+    #             UserWarning,
+    #         )
+    #
+    #         time_data = np.ones(nrays) * start
+    #     else:
+    #         delta = (end - start) / nrays
+    #         time_data = np.arange(start + delta / 2.0, end, delta)
+    #         time_data = np.roll(time_data, shift=+self.a1gate)
+    #     return time_data
+
+    # def _get_ray_times(self, nrays=None):
+    #     try:
+    #         time_data = self._get_time_how()
+    #         self._need_time_recalc = False
+    #     except (AttributeError, KeyError, TypeError):
+    #         time_data = self._get_time_what(nrays=nrays)
+    #         self._need_time_recalc = True
+    #     return time_data
+
+    def _get_range(self):
+        how = self._root[self._group]["how"].attrs
+        range_samples = how["range_samples"]
+        range_step = how["range_step"]
+        ngates = how["bin_count"]
+        bin_range = range_step * range_samples
+        cent_first = bin_range / 2.0
+        range_data = np.arange(
+            cent_first,
+            bin_range * ngates,
+            bin_range,
+            dtype="float32",
+        )
+        return range_data, cent_first, bin_range
+        #
+        #
+        # grp = self._group.split("/")[0]
+        # where = self._root[grp]["where"].attrs
+        # ngates = where["nbins"]
+        # range_start = where["rstart"] * 1000.0
+        # bin_range = where["rscale"]
+        # cent_first = range_start + bin_range / 2.0
+        # range_data = np.arange(
+        #     cent_first, range_start + bin_range * ngates, bin_range, dtype="float32"
+        # )
+        # return range_data, cent_first, bin_range
+
+    def _get_time(self, point="start"):
+        start = self._root[self._group]["how"].attrs["timestamp"]
+        import dateutil
+
+        start = dateutil.parser.parse(start)
+        start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+        return start
+        # grp = self._group.split("/")[0]
+        # what = self._root[grp]["what"].attrs
+        # startdate = what[f"{point}date"].item().decode()
+        # starttime = what[f"{point}time"].item().decode()
+        # start = dt.datetime.strptime(startdate + starttime, "%Y%m%d%H%M%S")
+        # start = start.replace(tzinfo=dt.timezone.utc).timestamp()
+        # return start
+
+    # def _get_a1gate(self):
+    #     grp = self._group.split("/")[0]
+    #     a1gate = self._root[grp]["where"].attrs["a1gate"]
+    #     return a1gate
+
+    def _get_site_coords(self):
+        lon = self._root["where"].attrs["lon"].item()
+        lat = self._root["where"].attrs["lat"].item()
+        alt = self._root["where"].attrs["height"].item()
+        return lon, lat, alt
+
+    # def _get_dset_what(self):
+    #     attrs = {}
+    #     what = self._root[self._group]["what"].attrs
+    #     attrs["scale_factor"] = what["gain"]
+    #     attrs["add_offset"] = what["offset"]
+    #     attrs["_FillValue"] = what["nodata"]
+    #     attrs["_Undetect"] = what["undetect"]
+    #     attrs["quantity"] = what["quantity"]
+        # attrs = {}
+        # what = self._root[self._group]["what"].attrs
+        # attrs["scale_factor"] = what["gain"]
+        # attrs["add_offset"] = what["offset"]
+        # attrs["_FillValue"] = what["nodata"]
+        # attrs["_Undetect"] = what["undetect"]
+        # attrs["quantity"] = what["quantity"].item().decode()
+    #    return attrs
+
+    # @property
+    # def a1gate(self):
+    #     return self._get_a1gate()
+    #
+    # @property
+    # def azimuth(self):
+    #     try:
+    #         azimuth = self._get_azimuth_how()
+    #     except (AttributeError, KeyError, TypeError):
+    #         azimuth = self._get_azimuth_where()
+    #     return azimuth
+    #
+    # @property
+    # def elevation(self):
+    #     try:
+    #         elevation = self._get_elevation_how()
+    #     except (AttributeError, KeyError, TypeError):
+    #         elevation = self._get_elevation_where()
+    #     return elevation
+    #
+    # @property
+    # def ray_times(self):
+    #     return self._get_ray_times()
+
+
 def _fix_angle(da):
     # fix elevation outliers
     if len(set(da.values)) > 1:
@@ -1356,6 +1671,38 @@ def open_odim_dataset(filename_or_obj, group=None, **kwargs):
     return _open_radar_dataset(filename_or_obj, engine="odim", **kwargs)
 
 
+def open_gamic_dataset(filename_or_obj, group=None, **kwargs):
+    """Open and decode an GAMIC radar sweep or volume from a file or file-like object.
+
+    This function uses ``xarray.open_dataset`` under the hood. Please refer for
+    details to the documentation of ``xarray.open_dataset``.
+
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    group : str, optional
+        Path to a sweep group in the given file to open.
+
+    Keyword Arguments
+    -----------------
+    **kwargs : optional
+        Additional arguments passed on to :py:func:`xarray.open_dataset`.
+
+    Returns
+    -------
+    dataset : xarray.Dataset | wradlib.io.RadarVolume
+        The newly created radar dataset or radar volume.
+
+    See Also
+    --------
+    wradlib.io.open_gamic_mfdataset
+    """
+    kwargs["group"] = group
+    return _open_radar_dataset(filename_or_obj, engine="gamic", **kwargs)
+
+
 def open_odim_mfdataset(filename_or_obj, group=None, **kwargs):
     """Open and decode an ODIM radar sweep or volume from a file or file-like object.
 
@@ -1382,10 +1729,42 @@ def open_odim_mfdataset(filename_or_obj, group=None, **kwargs):
 
     See Also
     --------
-    wradlib.io.open_odim_mfdataset
+    wradlib.io.open_odim_dataset
     """
     kwargs["group"] = group
     return _open_radar_mfdataset(filename_or_obj, engine="odim", **kwargs)
+
+
+def open_gamic_mfdataset(filename_or_obj, group=None, **kwargs):
+    """Open and decode an GAMIC radar sweep or volume from a file or file-like object.
+
+    This function uses ``xarray.open_dataset`` under the hood. Please refer for
+    details to the documentation of ``xarray.open_dataset``.
+
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    group : str, optional
+        Path to a sweep group in the given file to open.
+
+    Keyword Arguments
+    -----------------
+    **kwargs : optional
+        Additional arguments passed on to :py:func:`xarray.open_dataset`.
+
+    Returns
+    -------
+    dataset : xarray.Dataset | wradlib.io.RadarVolume
+        The newly created radar dataset or radar volume.
+
+    See Also
+    --------
+    wradlib.io.open_gamic_dataset
+    """
+    kwargs["group"] = group
+    return _open_radar_mfdataset(filename_or_obj, engine="gamic", **kwargs)
 
 
 def _open_radar_dataset(filename_or_obj, engine=None, **kwargs):
@@ -1418,7 +1797,7 @@ def _open_radar_dataset(filename_or_obj, engine=None, **kwargs):
     --------
     wradlib.io._open_odim_mfdataset
     """
-    if engine not in ["odim"]:
+    if engine not in ["gamic", "odim"]:
         raise TypeError(f"Missing or unknown `engine` keyword argument '{engine}'.")
 
     group = kwargs.pop("group", None)
@@ -1605,66 +1984,66 @@ def _preprocess_moment(ds, mom, non_uniform_shape):
     return ds
 
 
-def _reindex_angle2(ds, sweep, force=False):
-    # Todo: The current code assumes to have PPI's of 360deg and RHI's of 90deg,
-    #       make this work also for sectorized measurements
-    full_range = dict(azimuth=360, elevation=90)
-    dimname = list(ds.dims)[0]
-    secname = sweep._dim0[1]
-    dim = ds[dimname]
-    diff = dim.diff(dimname)
-    # this captures different angle spacing
-    # catches also missing rays and double rays
-    # and other erroneous ray alignments which result in different diff values
-    diffset = set(diff.values)
-    non_uniform_angle_spacing = len(diffset) > 1
-    # this captures missing and additional rays in case the angle differences
-    # are equal
-    non_full_circle = False
-    if not non_uniform_angle_spacing:
-        res = list(diffset)[0]
-        non_full_circle = ((res * sweep.nrays) % full_range[dimname]) != 0
-
-    # fix issues with ray alignment
-    if force | non_uniform_angle_spacing | non_full_circle:
-        # create new array and reindex
-        res = sweep.angle_resolution
-        new_rays = int(np.round(full_range[dimname] / res, decimals=0))
-
-        # find exact duplicates and remove
-        _, idx = np.unique(ds[dimname], return_index=True)
-        if len(idx) < len(ds[dimname]):
-            ds = ds.isel({dimname: idx})
-            # if ray_time was errouneously created from wrong dimensions
-            # we need to recalculate it
-            if sweep._need_time_recalc:
-                ray_times = sweep._get_ray_times(nrays=len(idx))
-                ray_times = sweep._decode_cf(ray_times)
-                ds = ds.assign({"rtime": ray_times})
-
-        # todo: check if assumption that beam center points to
-        #       multiples of res/2. is correct in any case
-        azr = np.arange(res / 2.0, new_rays * res, res, dtype=diff.dtype)
-        fill_value = {
-            k: np.asarray(v._FillValue).astype(v.dtype)
-            for k, v in ds.items()
-            if hasattr(v, "_FillValue")
-        }
-        # todo: make tolerance parameterizable
-        ds = ds.reindex(
-            {dimname: azr},
-            method="nearest",
-            tolerance=res / 2.5,
-            fill_value=fill_value,
-        )
-        # check other coordinates
-        # check secondary angle coordinate (no nan)
-        # set nan values to reasonable median
-        if hasattr(ds, secname) and np.count_nonzero(np.isnan(ds[secname])):
-            ds[secname] = ds[secname].fillna(ds[secname].median(skipna=True))
-        # todo: rtime is also affected, might need to be treated accordingly
-
-    return ds
+# def _reindex_angle2(ds, sweep, force=False):
+#     # Todo: The current code assumes to have PPI's of 360deg and RHI's of 90deg,
+#     #       make this work also for sectorized measurements
+#     full_range = dict(azimuth=360, elevation=90)
+#     dimname = list(ds.dims)[0]
+#     secname = sweep._dim0[1]
+#     dim = ds[dimname]
+#     diff = dim.diff(dimname)
+#     # this captures different angle spacing
+#     # catches also missing rays and double rays
+#     # and other erroneous ray alignments which result in different diff values
+#     diffset = set(diff.values)
+#     non_uniform_angle_spacing = len(diffset) > 1
+#     # this captures missing and additional rays in case the angle differences
+#     # are equal
+#     non_full_circle = False
+#     if not non_uniform_angle_spacing:
+#         res = list(diffset)[0]
+#         non_full_circle = ((res * sweep.nrays) % full_range[dimname]) != 0
+#
+#     # fix issues with ray alignment
+#     if force | non_uniform_angle_spacing | non_full_circle:
+#         # create new array and reindex
+#         res = sweep.angle_resolution
+#         new_rays = int(np.round(full_range[dimname] / res, decimals=0))
+#
+#         # find exact duplicates and remove
+#         _, idx = np.unique(ds[dimname], return_index=True)
+#         if len(idx) < len(ds[dimname]):
+#             ds = ds.isel({dimname: idx})
+#             # if ray_time was errouneously created from wrong dimensions
+#             # we need to recalculate it
+#             if sweep._need_time_recalc:
+#                 ray_times = sweep._get_ray_times(nrays=len(idx))
+#                 ray_times = sweep._decode_cf(ray_times)
+#                 ds = ds.assign({"rtime": ray_times})
+#
+#         # todo: check if assumption that beam center points to
+#         #       multiples of res/2. is correct in any case
+#         azr = np.arange(res / 2.0, new_rays * res, res, dtype=diff.dtype)
+#         fill_value = {
+#             k: np.asarray(v._FillValue).astype(v.dtype)
+#             for k, v in ds.items()
+#             if hasattr(v, "_FillValue")
+#         }
+#         # todo: make tolerance parameterizable
+#         ds = ds.reindex(
+#             {dimname: azr},
+#             method="nearest",
+#             tolerance=res / 2.5,
+#             fill_value=fill_value,
+#         )
+#         # check other coordinates
+#         # check secondary angle coordinate (no nan)
+#         # set nan values to reasonable median
+#         if hasattr(ds, secname) and np.count_nonzero(np.isnan(ds[secname])):
+#             ds[secname] = ds[secname].fillna(ds[secname].median(skipna=True))
+#         # todo: rtime is also affected, might need to be treated accordingly
+#
+#     return ds
 
 
 def _open_mfmoments(

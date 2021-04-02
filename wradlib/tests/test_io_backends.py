@@ -82,6 +82,8 @@ def get_measured_volume(file, format, fileobj, **kwargs):
         engine = format.lower()
         if engine == "odim":
             open_ = io.xarray.open_odim_dataset
+        if engine == "gamic":
+            open_ = io.xarray.open_gamic_dataset
         yield open_(h5file, **kwargs)
 
 
@@ -101,6 +103,8 @@ def get_synthetic_volume(name, file_or_filelike, **kwargs):
         engine = format.lower()
         if engine == "odim":
             open_ = io.xarray.open_odim_dataset
+        if engine == "gamic":
+            open_ = io.xarray.open_gamic_dataset
         yield open_(h5file, **kwargs)
 
 
@@ -126,7 +130,7 @@ class DataVolume:
         gc.collect()
 
     def test_sweeps(self, file_or_filelike):
-        with self.get_volume_data(file_or_filelike, backend_kwargs=dict(keep_azimuth=True)) as vol:
+        with self.get_volume_data(file_or_filelike) as vol:
             for i, ds in enumerate(vol):
                 assert isinstance(ds, xr.Dataset)
                 assert self.azimuths[i] == ds.dims["azimuth"]
@@ -232,7 +236,7 @@ class TestGamicVolume(MeasuredDataVolume):
             "RHOHV",
         ]
         elevations = [28.0, 18.0, 14.0, 11.0, 8.2, 6.0, 4.5, 3.1, 1.7, 0.6]
-        azimuths = [361, 361, 361, 360, 361, 360, 360, 361, 360, 360]
+        azimuths = [360, 360, 360, 360, 360, 360, 360, 360, 360, 360]
         ranges = [360, 500, 620, 800, 1050, 1400, 1000, 1000, 1000, 1000]
 
         data = io.read_generic_hdf5(util.get_wradlib_data_file(name))
