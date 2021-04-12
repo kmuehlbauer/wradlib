@@ -801,7 +801,8 @@ def to_cfradial2(volume, filename, timestep=None):
         except ValueError:
             swp = swp.drop_vars("time").rename({"rtime": "time"})
             swp = swp.swap_dims({dim0: "time"})
-        swp.drop_vars(["x", "y", "z", "gr", "rays", "bins"], errors="ignore")
+        swp = swp.drop_vars(["x", "y", "z", "gr", "rays", "bins"], errors="ignore")
+        swp = swp.sortby("time")
         swp.to_netcdf(filename, mode="a", group=key)
 
 
@@ -894,7 +895,8 @@ def to_odim(volume, filename, timestep=0):
         elif isinstance(volume, XRadVolume):
             ds = volume[idx][timestep].data
         else:
-            ds = volume[idx].expand_dims("time").isel(time=timestep)
+            ds = volume[idx].expand_dims("time").isel(time=timestep, drop=True)
+            ds = ds.rename({"rtime": "time"})
         h5_dataset = h5.create_group(ds_list[idx])
 
         # what group p. 21 ff.
@@ -917,10 +919,11 @@ def to_odim(volume, filename, timestep=0):
         rscale = ds.range.values[1] / 1.0 - ds.range.values[0]
         rstart = (ds.range.values[0] - rscale / 2.0) / 1000.0
         # todo: make this work for RHI's
-        try:
-            a1gate = np.argsort(ds.sortby("time").azimuth.values)[0]
-        except ValueError:
-            a1gate = np.argsort(ds.sortby("rtime").azimuth.values)[0]
+        #try:
+        #a1gate = np.argsort(ds.sortby("time").azimuth.values)[0]
+        a1gate = np.argsort(ds.time.values)[0]
+        #except ValueError:
+        #    a1gate = np.argsort(ds.sortby("rtime").azimuth.values)[0]
         try:
             fixed_angle = ds.fixed_angle
         except AttributeError:
@@ -937,10 +940,11 @@ def to_odim(volume, filename, timestep=0):
 
         # how group, p. 14 ff.
         h5_ds_how = h5_dataset.create_group("how")
-        try:
-            tout = [tx.astype("O") / 1e9 for tx in ds.sortby("azimuth").time]
-        except TypeError:
-            tout = [tx.astype("O") / 1e9 for tx in ds.sortby("azimuth").rtime]
+        #try:
+        #tout = [tx.astype("O") / 1e9 for tx in ds.sortby("azimuth").time]
+        tout = [tx.astype("O") / 1e9 for tx in ds.sortby("time").time]
+        #except TypeError:
+        #    tout = [tx.astype("O") / 1e9 for tx in ds.sortby("azimuth").rtime]
 
         difft = np.diff(tout) / 2.0
         difft = np.insert(difft, 0, difft[0])
@@ -1669,9 +1673,11 @@ def _assign_data_radial2(ds):
     dim0 = "elevation" if sweep_mode == "rhi" else "azimuth"
     ds = ds.swap_dims({"time": dim0})
     ds = ds.rename({"time": "rtime"})
-    time = ds.rtime[0].reset_coords(drop=True)
-    key = [key for key in time.attrs.keys() if "comment" in key][0]
-    del time.attrs[key]
+    time = ds.rtime[0].reset_coords(drop=True).dt.round("S")
+    # todo: check use-case
+    key = [key for key in time.attrs.keys() if "comment" in key]
+    if key:
+        del time.attrs[key[0]]
     coords = {
         "azimuth": ds.azimuth,
         "elevation": ds.elevation,

@@ -365,6 +365,7 @@ class OdimStore(AbstractDataStore):
         self.is_remote = is_remote_uri(self._filename)
         self.lock = ensure_lock(lock)
         self._substore = None
+        self._need_time_recalc = False
 
     @classmethod
     def open(
