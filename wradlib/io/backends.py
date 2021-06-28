@@ -49,6 +49,7 @@ from xarray.core import indexing
 from xarray.core.utils import Frozen, FrozenDict, close_on_error, is_remote_uri
 from xarray.core.variable import Variable
 
+from wradlib.io.iris import _check_iris_file
 from wradlib.io.radolan import _radolan_file
 from wradlib.io.xarray import (
     _assign_data_radial,
@@ -813,3 +814,22 @@ class CfRadial2BackendEntrypoint(BackendEntrypoint):
             ds = ds.sortby(list(ds.dims.keys())[0])
 
         return ds
+
+class SigmetBackendEntrypoint(BackendEntrypoint):
+
+    def open_dataset(
+            self,
+            filename_or_obj,
+            *,
+            mask_and_scale=True,
+            decode_times=True,
+            concat_characters=True,
+            decode_coords=True,
+            drop_variables=None,
+            use_cftime=None,
+            decode_timedelta=None,
+            format=None,
+            group=None,
+    ):
+        opener = _check_iris_file(filename_or_obj)
+

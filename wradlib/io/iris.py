@@ -423,6 +423,24 @@ def _check_identifier(identifier):
         return False
 
 
+def _check_iris_file(filename):
+    with open(filename, "rb") as fp:
+        fh = np.memmap(fp, mode="r")
+        head = _unpack_dictionary(
+            fh[0 : LEN_STRUCTURE_HEADER], STRUCTURE_HEADER, False
+        )
+        structure_identifier = STRUCTURE_HEADER_IDENTIFIERS[head["structure_identifier"]]["name"]
+        opener = _check_identifier(structure_identifier)
+
+        if structure_identifier == "PRODUCT_HDR":
+            head = _unpack_dictionary(
+                fh[0 : LEN_PRODUCT_HDR], PRODUCT_HDR, False
+            )
+            product_type = PRODUCT_DATA_TYPE_CODES[head["product_configuration"]["product_type_code"]]["name"]
+            opener = _check_product(product_type)
+    return structure_identifier, opener
+
+
 # IRIS Data Structures
 _STRING = {"read": decode_string, "rkw": {}}
 
@@ -2759,8 +2777,10 @@ class IrisFile(IrisFileBase, IrisStructureHeader):
         self._debug = kwargs.get("debug", False)
         self._rawdata = kwargs.get("rawdata", False)
         self._loaddata = kwargs.get("loaddata", True)
+        self._fp = None
         if isinstance(filename, str):
-            self._fh = np.memmap(filename, mode="r")
+            self._fp = open(filename, "rb")
+            self._fh = np.memmap(self._fp, mode="r")
         else:
             if isinstance(filename, io.BytesIO):
                 filename = filename.read()
@@ -2771,6 +2791,18 @@ class IrisFile(IrisFileBase, IrisStructureHeader):
         # read first structure header
         self.get_header(IrisStructureHeader)
         self._filepos = 0
+
+    def close(self):
+        if self._fp is not None:
+            self._fp.close()
+
+    __del__ = close
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.close()
 
     def check_identifier(self):
         if self.structure_identifier in self.identifier:
@@ -3841,18 +3873,18 @@ def read_iris(filename, loaddata=True, rawdata=False, debug=False, **kwargs):
     if not isinstance(filename, str):
         filename = filename.read()
 
-    irisfile = IrisFile(filename)
-    id = irisfile.check_identifier()
-    ic = _check_identifier(irisfile.check_identifier())
-    if id == "PRODUCT_HDR":
-        irisfile = IrisRecordFile(filename)
-        pi = irisfile.check_product_identifier()
-        ic = _check_product(pi)
+    sid, opener = _check_iris_file(filename)
+    #id = irisfile.check_identifier()
+    #ic = _check_identifier(irisfile.check_identifier())
+    #if id == "PRODUCT_HDR":
+    #    irisfile = IrisRecordFile(filename)
+    #    pi = irisfile.check_product_identifier()
+    #    ic = _check_product(pi)
 
-    if not ic:
-        raise TypeError("Unknown File or Product Type {}".format(id))
+    if not opener:
+        raise TypeError("Unknown File or Product Type {}".format(sid))
 
-    irisfile = ic(filename, loaddata=loaddata, rawdata=rawdata, debug=debug, **kwargs)
+    irisfile = opener(filename, loaddata=loaddata, rawdata=rawdata, debug=debug, **kwargs)
 
     properties = [
         "product_hdr",
