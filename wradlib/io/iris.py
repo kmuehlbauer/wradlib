@@ -2478,7 +2478,7 @@ class IrisRecord(object):
             Slice into memory mapped file.
         recnum : int
         """
-        self.record = record.copy()
+        self.record = record#.copy()
         self._pos = 0
         self.recnum = recnum
 
@@ -3543,15 +3543,16 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
             raw_prod_bhdr = self.get_raw_prod_bhdr()
             # continue to next record if belonging to same sweep
             if raw_prod_bhdr["sweep_number"] == sw:
-                continue
+                pass
+                #continue
             # else set current sweep number
             else:
                 sw = raw_prod_bhdr["sweep_number"]
+                sweep = OrderedDict()
+                sweep["ingest_data_hdrs"] = self.get_ingest_data_headers()
+                self._data[sw] = sweep
             # read headers and add to _data
             self.raw_product_bhdrs.append(raw_prod_bhdr)
-            sweep = OrderedDict()
-            sweep["ingest_data_hdrs"] = self.get_ingest_data_headers()
-            self._data[sw] = sweep
 
 
 class IrisProductFile(IrisRecordFile):
