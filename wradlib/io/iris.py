@@ -3222,10 +3222,10 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
         chk : bool
             False, if record is truncated.
         """
-        # we do not know filesize before reading first record,
+        # we do not know filesize (structure_size) before reading first record,
         # so we try and pass
         try:
-            if self.record_number >= self.filesize / RECORD_BYTES:
+            if self.record_number >= self.structure_size / RECORD_BYTES:
                 return False
         except AttributeError:
             pass
@@ -3260,6 +3260,30 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
             data = np.append(data, next_data)
             words -= len(next_data)
         return data
+
+    def skip_from_record(self, words, dtype):
+        """Only move filepointer.
+
+        Parameters
+        ----------
+        words : int
+            Number of data words to skip.
+        dtype : str
+            dtype string specifying data format.
+        """
+        width = get_dtype_size(dtype)
+        size = words * width
+        remain = RECORD_BYTES - self.rh.pos
+        if size - remain <= 0:
+            self.rh.pos += size
+        size -= remain
+        while size > 0:
+            self.init_next_record()
+            self.get_raw_prod_bhdr()
+            remain = RECORD_BYTES - self.rh.pos
+            if size - remain <= 0:
+                self.rh.pos += size
+            size -= remain
 
     def get_compression_code(self):
         """Read and return data compression code.
@@ -3303,7 +3327,7 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
 
         return ingest_data_hdrs
 
-    def get_ray(self, data):
+    def get_ray(self, data, skip=False):
         """Retrieve single ray.
 
         Returns
@@ -3322,34 +3346,36 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
             return None
 
         while not ((cmp_val == 1) & (not cmp_msb)):
-
-            # data words follow
-            if cmp_msb:
-                if self._debug:
-                    print(
-                        "--- Add {0} WORDS at range {1}, record {2}:{3}:"
-                        "".format(
-                            cmp_val, ray_pos, self._rh.recpos, self._rh.recpos + cmp_val
-                        )
-                    )
-                data[ray_pos : ray_pos + cmp_val] = self.read_from_record(
-                    cmp_val, "int16"
-                )
-            # compressed zeros follow
-            # can be skipped, if data array is created all zeros
+            if skip:
+                self.skip_from_record(cmp_val, "int16")
             else:
-                if self._debug:
-                    print(
-                        "--- Add {0} Zeros at range {1}, record {2}:{3}:"
-                        "".format(
-                            cmp_val, ray_pos, self._rh.recpos, self._rh.recpos + 1
+                # data words follow
+                if cmp_msb:
+                    if self._debug:
+                        print(
+                            "--- Add {0} WORDS at range {1}, record {2}:{3}:"
+                            "".format(
+                                cmp_val, ray_pos, self._rh.recpos, self._rh.recpos + cmp_val
+                            )
                         )
+                    data[ray_pos : ray_pos + cmp_val] = self.read_from_record(
+                        cmp_val, "int16"
                     )
-                if cmp_val + ray_pos > self.nbins + 6:
-                    return data
-                data[ray_pos : ray_pos + cmp_val] = 0
+                # compressed zeros follow
+                # can be skipped, if data array is created all zeros
+                else:
+                    if self._debug:
+                        print(
+                            "--- Add {0} Zeros at range {1}, record {2}:{3}:"
+                            "".format(
+                                cmp_val, ray_pos, self._rh.recpos, self._rh.recpos + 1
+                            )
+                        )
+                    if cmp_val + ray_pos > self.nbins + 6:
+                        return data
+                    data[ray_pos : ray_pos + cmp_val] = 0
 
-            ray_pos += cmp_val
+                ray_pos += cmp_val
 
             # read next compression code
             cmp_msb, cmp_val = self.get_compression_code()
@@ -3535,24 +3561,24 @@ class IrisRawFile(IrisRecordFile, IrisIngestHeader):
     def get_data_headers(self):
         """Retrieve all sweep `ingest_data_header` from file."""
         self.init_record(1)
-        sw = 0
+        current_sweep = 0
+        sweeps_read = 0
         ingest_conf = self.ingest_header["ingest_configuration"]
         sw_completed = ingest_conf["number_sweeps_completed"]
-        while sw < sw_completed and self.init_next_record():
+        while sweeps_read <= sw_completed and self.init_next_record():
             # get raw_prod_bhdr
             raw_prod_bhdr = self.get_raw_prod_bhdr()
-            # continue to next record if belonging to same sweep
-            if raw_prod_bhdr["sweep_number"] == sw:
-                pass
-                #continue
-            # else set current sweep number
-            else:
-                sw = raw_prod_bhdr["sweep_number"]
+            # append to bhdrs list
+            self.raw_product_bhdrs.append(raw_prod_bhdr)
+            # if new sweep set current sweep number, read ingest_data_headers
+            # and add to _data
+            if raw_prod_bhdr["sweep_number"] != current_sweep:
+                sweeps_read += 1
+                current_sweep = raw_prod_bhdr["sweep_number"]
                 sweep = OrderedDict()
                 sweep["ingest_data_hdrs"] = self.get_ingest_data_headers()
-                self._data[sw] = sweep
-            # read headers and add to _data
-            self.raw_product_bhdrs.append(raw_prod_bhdr)
+                self._data[current_sweep] = sweep
+            print(current_sweep, sweeps_read, self.filepos)
 
 
 class IrisProductFile(IrisRecordFile):
