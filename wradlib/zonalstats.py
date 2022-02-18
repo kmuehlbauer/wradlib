@@ -67,6 +67,7 @@ from wradlib import georef, io
 from wradlib.util import has_import, import_optional
 
 ogr = import_optional("osgeo.ogr")
+osr = import_optional("osgeo.osr")
 gdal = import_optional("osgeo.gdal")
 mpl_patches = import_optional("matplotlib.patches")
 mpl_path = import_optional("matplotlib.path")
@@ -146,17 +147,34 @@ class DataSource:
         lyr.SetAttributeFilter(None)
         return self._get_data()
 
-    def _get_data(self):
+    @property
+    def geometries(self):
+        """Returns DataSource geometries as numpy ndarrays
+
+        Note
+        ----
+        This may be slow, because it extracts all source polygons
+        """
+        lyr = self.ds.GetLayer()
+        lyr.ResetReading()
+        lyr.SetSpatialFilter(None)
+        lyr.SetAttributeFilter(None)
+        return self._get_data(mode="geom")
+
+    def _get_data(self, mode="numpy"):
         """Returns DataSource geometries as numpy ndarrays"""
         lyr = self.ds.GetLayer()
         sources = []
         for feature in lyr:
             geom = feature.GetGeometryRef()
-            poly = georef.vector.ogr_to_numpy(geom)
+            if mode == "numpy":
+                poly = georef.vector.ogr_to_numpy(geom)
+            else:
+                poly = geom.GetPoints()
             sources.append(poly)
         return np.array(sources, dtype=object)
 
-    def get_data_by_idx(self, idx):
+    def get_data_by_idx(self, idx, mode="numpy"):
         """Returns DataSource geometries as numpy ndarrays from given index
 
         Parameters
@@ -172,11 +190,14 @@ class DataSource:
         for i in idx:
             feature = lyr.GetFeature(i)
             geom = feature.GetGeometryRef()
-            poly = georef.vector.ogr_to_numpy(geom)
+            if mode == "numpy":
+                poly = georef.vector.ogr_to_numpy(geom)
+            else:
+                poly = geom.GetPoints()
             sources.append(poly)
         return np.array(sources, dtype=object)
 
-    def get_data_by_att(self, attr=None, value=None):
+    def get_data_by_att(self, attr=None, value=None, mode="numpy"):
         """Returns DataSource geometries filtered by given attribute/value
 
         Parameters
@@ -190,9 +211,9 @@ class DataSource:
         lyr.ResetReading()
         lyr.SetSpatialFilter(None)
         lyr.SetAttributeFilter(f"{attr}={value}")
-        return self._get_data()
+        return self._get_data(mode=mode)
 
-    def get_data_by_geom(self, geom=None):
+    def get_data_by_geom(self, geom=None, mode="numpy"):
         """Returns DataSource geometries filtered by given OGR geometry
 
         Parameters
@@ -204,7 +225,7 @@ class DataSource:
         lyr.ResetReading()
         lyr.SetAttributeFilter(None)
         lyr.SetSpatialFilter(geom)
-        return self._get_data()
+        return self._get_data(mode=mode)
 
     def _create_spatial_index(self):
         """Creates spatial index file .qix"""
@@ -288,13 +309,63 @@ class DataSource:
         # get input file handles
         ds_in, tmp_lyr = io.gdal.open_vector(filename, driver=driver, layer=source)
 
-        # copy layer
-        ogr_src_lyr = self.ds.CopyLayer(tmp_lyr, self._name)
-
         # get spatial reference object
-        srs = ogr_src_lyr.GetSpatialRef()
-        if srs is not None:
-            self._srs = ogr_src_lyr.GetSpatialRef()
+        srs = tmp_lyr.GetSpatialRef()
+
+        # raise error as we can't do anything about it
+        if self._srs is None and srs is None:
+            raise ValueError(
+                f"Spatial reference missing from source file {filename}. "
+                f"Please provide a fitting spatial reference object"
+            )
+
+        # this will be combined with the above the future to raise unconditionally
+        if srs is None:
+            warnings.warn(
+                f"Spatial reference missing from source file {filename}. "
+                f"This will raise an error from wradlib version 2.0",
+                FutureWarning,
+            )
+
+        # reproject layer if necessary
+        # todo: move this to dedicated function over in georef.vector
+        if self._srs is not None and srs is not None and srs != self._srs:
+            ogr_src_lyr = self.ds.CreateLayer(
+                self._name, self._srs, geom_type=ogr.wkbPolygon
+            )
+            georef.vector.ogr_reproject_layer(tmp_lyr, ogr_src_lyr, self._srs)
+            # # add fields
+            # ogr_src_lyr.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
+            # from osgeo import osr
+            #
+            # coordTrans = osr.CoordinateTransformation(srs, self._srs)
+            #
+            # # get the output layer's feature definition
+            # ogr_src_lyr_defn = ogr_src_lyr.GetLayerDefn()
+            # # loop through the input features
+            # feature = tmp_lyr.GetNextFeature()
+            # i = 0
+            # while feature:
+            #     # get the input geometry
+            #     geom = feature.GetGeometryRef()
+            #     # reproject the geometry
+            #     geom.Transform(coordTrans)
+            #     # create a new feature
+            #     ofeature = ogr.Feature(ogr_src_lyr_defn)
+            #     # set the geometry and attribute
+            #     ofeature.SetGeometry(geom)
+            #     ofeature.SetField("id", i)
+            #     i += 1
+            #     # add the feature to the shapefile
+            #     ogr_src_lyr.CreateFeature(ofeature)
+            #     # dereference the features and get the next input feature
+            #     ofeature = None
+            #     feature = tmp_lyr.GetNextFeature()
+        else:
+            # copy layer
+            ogr_src_lyr = self.ds.CopyLayer(tmp_lyr, self._name)
+            if self._srs is None:
+                self._srs = srs
 
         # flush everything
         del ds_in
@@ -527,11 +598,13 @@ class ZonalDataBase:
             if isinstance(src, DataSource):
                 self.src = src
             else:
+                print("getting source")
                 self.src = DataSource(src, name="src", srs=srs, **kwargs)
 
             if isinstance(trg, DataSource):
                 self.trg = trg
             else:
+                print("getting target")
                 self.trg = DataSource(trg, name="trg", srs=srs, **kwargs)
 
             self.dst = DataSource(name="dst")
@@ -626,6 +699,7 @@ class ZonalDataBase:
         src_lyr.ResetReading()
         src_lyr.SetSpatialFilter(None)
         geom_type = src_lyr.GetGeomType()
+        print(geom_type)
 
         # get trg geometry layer
         trg_lyr = self.trg.ds.GetLayerByName("trg")
@@ -643,10 +717,12 @@ class ZonalDataBase:
         trg_lyr.ResetReading()
 
         # create tmp dest layer
+        print("create temp dest layer")
         self.tmp_lyr = georef.vector.ogr_create_layer(
             ds_mem, "dst", srs=self._srs, geom_type=geom_type
         )
 
+        print("Intersection")
         trg_lyr.Intersection(
             src_lyr,
             self.tmp_lyr,
