@@ -109,6 +109,7 @@ class DataSource:
     def __init__(self, data=None, srs=None, name="layer", source=0, **kwargs):
         self._srs = srs
         self._name = name
+        self._geo = None
         if data is not None:
             try:
                 self._ds = self._check_src(data)
@@ -146,6 +147,13 @@ class DataSource:
         lyr.SetSpatialFilter(None)
         lyr.SetAttributeFilter(None)
         return self._get_data()
+
+    @property
+    def geo(self):
+        if self._geo is None:
+            geopandas = import_optional("geopandas")
+            self._geo = geopandas.read_file(self.ds.GetDescription())
+        return self._geo
 
     @property
     def geometries(self):
@@ -334,33 +342,6 @@ class DataSource:
                 self._name, self._srs, geom_type=ogr.wkbPolygon
             )
             georef.vector.ogr_reproject_layer(tmp_lyr, ogr_src_lyr, self._srs)
-            # # add fields
-            # ogr_src_lyr.CreateField(ogr.FieldDefn("id", ogr.OFTInteger))
-            # from osgeo import osr
-            #
-            # coordTrans = osr.CoordinateTransformation(srs, self._srs)
-            #
-            # # get the output layer's feature definition
-            # ogr_src_lyr_defn = ogr_src_lyr.GetLayerDefn()
-            # # loop through the input features
-            # feature = tmp_lyr.GetNextFeature()
-            # i = 0
-            # while feature:
-            #     # get the input geometry
-            #     geom = feature.GetGeometryRef()
-            #     # reproject the geometry
-            #     geom.Transform(coordTrans)
-            #     # create a new feature
-            #     ofeature = ogr.Feature(ogr_src_lyr_defn)
-            #     # set the geometry and attribute
-            #     ofeature.SetGeometry(geom)
-            #     ofeature.SetField("id", i)
-            #     i += 1
-            #     # add the feature to the shapefile
-            #     ogr_src_lyr.CreateFeature(ofeature)
-            #     # dereference the features and get the next input feature
-            #     ofeature = None
-            #     feature = tmp_lyr.GetNextFeature()
         else:
             # copy layer
             ogr_src_lyr = self.ds.CopyLayer(tmp_lyr, self._name)
@@ -461,6 +442,9 @@ class DataSource:
         for i, item in enumerate(lyr):
             item.SetField(name, values[i])
             lyr.SetFeature(item)
+
+        lyr.SyncToDisk()
+        self._geo = None
 
     def get_attributes(self, attrs, filt=None):
         """Read attributes
@@ -1046,7 +1030,6 @@ class ZonalStatsBase:
                 for i in np.arange(len(self.ix))[~self.isempty]
             ]
         )
-
         if self.zdata is not None:
             self.zdata.trg.set_attribute("mean", out)
 
