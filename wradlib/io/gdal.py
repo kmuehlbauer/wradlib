@@ -247,7 +247,8 @@ class VectorSource:
         self._srs = srs
         self._name = name
         self._geo = None
-        self._mode ="numpy"
+        #self._mode ="numpy"
+        self._source_srs = kwargs.get("projection_source", None)
         if data is not None:
             try:
                 self._ds = self._check_src(data)
@@ -274,32 +275,6 @@ class VectorSource:
         summary.append(geoms)
         return "\n".join(summary)
 
-    def __getitem__(self, key):
-        if self._mode == "numpy":
-            return self.get_data_by_idx(key)
-        else:
-            if isinstance(key, int):
-                key = slice(key, key + 1)
-            return self.geo.iloc[key]
-
-    @property
-    def mode(self):
-        return self._mode
-
-    @mode.setter
-    def mode(self, value):
-        self._mode = value
-
-
-    @property
-    def values(self):
-        lyr = self.ds.GetLayer()
-        lyr.ResetReading()
-        lyr.SetSpatialFilter(None)
-        lyr.SetAttributeFilter(None)
-        return self._get_data()
-
-
     @property
     def ds(self):
         """Returns VectorSource"""
@@ -309,6 +284,9 @@ class VectorSource:
     @ds.setter
     def ds(self, value):
         self._ds = value
+
+    def set_layer(self, num=0):
+        self._cur_layer = self.ds.GetLayerByIndex(num)
 
     def _check_ds(self):
         """Raise ValueError if empty VectorSource"""
@@ -330,26 +308,16 @@ class VectorSource:
         return self._get_data()
 
     @property
+    def extent(self):
+        return self.ds.GetLayer().GetExtent()
+
+    @property
     def geo(self):
         "Returns VectorSource geometries as GeoPandas Dataframe"
         if self._geo is None:
             geopandas = import_optional("geopandas")
             self._geo = geopandas.read_file(self.ds.GetDescription())
         return self._geo
-
-    @property
-    def geometries(self):
-        """Returns DataSource geometries as numpy ndarrays
-
-        Note
-        ----
-        This may be slow, because it extracts all source polygons
-        """
-        lyr = self.ds.GetLayer()
-        lyr.ResetReading()
-        lyr.SetSpatialFilter(None)
-        lyr.SetAttributeFilter(None)
-        return self._get_data(mode="geom")
 
     def _get_data(self, mode="numpy"):
         """Returns DataSource geometries as numpy ndarrays"""
@@ -359,9 +327,10 @@ class VectorSource:
             geom = feature.GetGeometryRef()
             if mode == "numpy":
                 poly = georef.vector.ogr_to_numpy(geom)
+                sources.append(poly)
             else:
-                poly = geom.GetPoints()
-            sources.append(poly)
+                poly = geom
+                sources.append(poly)
         return np.array(sources, dtype=object)
 
     def get_data_by_idx(self, idx, mode="numpy"):
@@ -372,6 +341,13 @@ class VectorSource:
         idx : sequence
             sequence of int indices
         """
+        if mode == "geo":
+            if isinstance(idx, (list, slice)):
+                return self.geo.loc[idx]
+            elif np.isscalar(idx):
+                return self.geo.iloc[idx]
+            else:
+                return self.geo.loc[idx]
         lyr = self.ds.GetLayer()
         lyr.ResetReading()
         lyr.SetSpatialFilter(None)
@@ -380,10 +356,9 @@ class VectorSource:
         for i in idx:
             feature = lyr.GetFeature(i)
             geom = feature.GetGeometryRef()
-            if mode == "numpy":
-                poly = georef.vector.ogr_to_numpy(geom)
-            else:
-                poly = geom.GetPoints()
+            poly = georef.vector.ogr_to_numpy(geom)
+            if mode == "ogr":
+                poly = georef.vector.numpy_to_ogr(poly, geom.GetGeometryName().capitalize())
             sources.append(poly)
         return np.array(sources, dtype=object)
 
@@ -400,7 +375,13 @@ class VectorSource:
         lyr = self.ds.GetLayer()
         lyr.ResetReading()
         lyr.SetSpatialFilter(None)
-        lyr.SetAttributeFilter(f"{attr}={value}")
+        if np.isscalar(value):
+            sql = f"{attr}={value}"
+        else:
+            sql = f"{attr} in {tuple(value)}"
+        lyr.SetAttributeFilter(sql)
+        if mode == "geo":
+            return self.geo.query(sql)
         return self._get_data(mode=mode)
 
     def get_data_by_geom(self, geom=None, mode="numpy"):
@@ -443,8 +424,9 @@ class VectorSource:
         ogr_src = gdal_create_dataset(
             "ESRI Shapefile", os.path.join("/vsimem", tmpfile), gdal_type=gdal.OF_VECTOR
         )
-
         src = np.array(src)
+        if self._source_srs is not None:
+            src = georef.reproject(src, projection_source=self._source_srs, projection_target=self._srs)
         # create memory datasource, layer and create features
         if src.ndim == 2:
             geom_type = ogr.wkbPoint

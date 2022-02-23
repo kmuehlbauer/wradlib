@@ -196,8 +196,10 @@ def ogr_reproject_layer(src_lyr, dst_lyr, dst_srs, src_srs=None):
         OGRLayer source layer
     dst_lyr : :py:class:`gdal:osgeo.ogr.Layer`
         OGRLayer destination layer
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    dst_srs : :py:class:`gdal:osgeo.osr.SpatialReference`
         Projection Target SRS
+    src_srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Projection Source SRS
 
     Returns
     -------
