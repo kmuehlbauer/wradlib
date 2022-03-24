@@ -290,7 +290,7 @@ def _get_fmt_string(dictionary, retsub=False):
     sub : dict
         Dictionary containing substructure
     """
-    fmt = ""
+    fmt = "<"
     if retsub:
         sub = OrderedDict()
     for k, v in dictionary.items():
@@ -349,7 +349,6 @@ def _unpack_dictionary(buffer, dictionary, rawdata=False):
     """
     # get format and substructures of dictionary
     fmt, sub = _get_fmt_string(dictionary, retsub=True)
-
     # unpack into OrderedDict
     data = OrderedDict(zip(dictionary, struct.unpack(fmt, buffer)))
 
