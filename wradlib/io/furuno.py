@@ -48,7 +48,7 @@ from wradlib.io.iris import (_unpack_dictionary, _get_fmt_string,
 def decode_time(data):
     """Decode `YMDS_TIME` into datetime object."""
     time = _unpack_dictionary(data, YMDS_TIME)
-    print(time)
+    #print(time)
     try:
         t = dt.datetime(time["year"], time["month"], time["day"],
                         time["hour"], time["minute"], time["second"])
@@ -236,10 +236,14 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
             rng = self.header["number_range_direction_data"]
             start = 156
             cnt = len(items)
-            data = self._fh[start:].view(dtype="uint16").reshape(rays, -1)[:, 4:].reshape(rays, cnt, rng)
+            raw_data = self._fh[start:].view(dtype="uint16").reshape(rays, -1)
+            data = raw_data[:, 4:].reshape(rays, cnt, rng)
+            angles = raw_data[:, 2:4].reshape(rays, 2)
             self._data = dict()
             for i in range(cnt):
                 self._data[items[i]] = data[:, i , :]
+            self._data["azimuth"] = angles[:, 0]
+            self._data["elevation"] = angles[:, 1]
         return self._data
 
     def close(self):
@@ -357,6 +361,7 @@ from wradlib.io.xarray import (
     range_attrs,
     time_attrs,
 )
+import xarray as xr
 
 
 class FurunoArrayWrapper(BackendArray):
@@ -366,11 +371,12 @@ class FurunoArrayWrapper(BackendArray):
     ):
         self.data = data
         self.shape = data.shape
-        self.dtype = np.uint16
+        self.dtype = np.dtype("uint16")
 
     def __getitem__(self, key: tuple):
         return xr.core.indexing.explicit_indexing_adapter(
             key,
+            self.shape,
             xr.core.indexing.IndexingSupport.BASIC,
             self._raw_indexing_method,
         )
@@ -417,7 +423,6 @@ class FurunoStore(AbstractDataStore):
         return self._acquire()
 
     def open_store_variable(self, name, var):
-        print(name)
         dim = self.root.first_dimension
 
         data = indexing.LazilyOuterIndexedArray(FurunoArrayWrapper(var))
@@ -440,16 +445,20 @@ class FurunoStore(AbstractDataStore):
 
         mapping = moments_mapping.get(name, {})
         attrs = {key: mapping[key] for key in moment_attrs if key in mapping}
-
-        attrs["add_offset"] = add_offset
-        attrs["scale_factor"] = scale_factor
-        attrs["_FillValue"] = 0
-        # attrs[
-        #    "coordinates"
-        # ] = "elevation azimuth range latitude longitude altitude time rtime sweep_mode"
-        print(attrs)
-        print(Variable((dim, "range"), data, attrs, encoding))
-        return Variable((dim, "range"), data, attrs, encoding)
+        if name in ["azimuth", "elevation"]:
+            attrs == az_attrs if name == "azimuth" else el_attrs
+            dims = (dim,)
+        else:
+            attrs["add_offset"] = add_offset
+            attrs["scale_factor"] = scale_factor
+            attrs["_FillValue"] = 0
+            dims = (dim, "range")
+        attrs[
+           "coordinates"
+        ] = "elevation azimuth range latitude longitude altitude time rtime sweep_mode"
+        #print(attrs)
+        #print(Variable((dim, "range"), data, attrs, encoding))
+        return Variable(dims, data, attrs, encoding)
 
     #     def open_store_coordinates(self, var):
 
@@ -611,7 +620,7 @@ class FurunoStore(AbstractDataStore):
             # (k1, v1)
             # for k1, v1 in dict(
             (k, self.open_store_variable(k, v))
-            for k, v in self.ds.data.items() if k != "QUAL"
+            for k, v in self.ds.data.items()
             # **self.open_store_coordinates(self.ds),
             #            }.items()
         )
