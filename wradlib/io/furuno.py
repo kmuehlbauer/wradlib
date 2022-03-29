@@ -38,6 +38,7 @@ from collections import OrderedDict
 import numpy as np
 
 from wradlib.io.xarray import (
+    _calculate_angle_res,
     open_radar_dataset,
     open_radar_mfdataset,
     raise_on_missing_xarray_backend,
@@ -238,12 +239,12 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
             cnt = len(items)
             raw_data = self._fh[start:].view(dtype="uint16").reshape(rays, -1)
             data = raw_data[:, 4:].reshape(rays, cnt, rng)
-            angles = raw_data[:, 2:4].reshape(rays, 2)
+            angles = raw_data[:, :4].reshape(rays, 4)
             self._data = dict()
             for i in range(cnt):
-                self._data[items[i]] = data[:, i , :]
-            self._data["azimuth"] = angles[:, 0]
-            self._data["elevation"] = angles[:, 1]
+                self._data[items[i]] = data[:, i, :]
+            self._data["azimuth"] = angles[:, 1]
+            self._data["elevation"] = angles[:, 2]
         return self._data
 
     def close(self):
@@ -292,7 +293,16 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
 
     @property
     def fixed_angle(self):
-        return 0
+        dim = "azimuth" if self.first_dimension == "elevation" else "elevation"
+        return self._data[dim][0] * 1e-2
+
+    @property
+    def a1gate(self):
+        return np.argmin(self._data[self.first_dimension][::-1])
+
+    @property
+    def angle_res(self):
+        return _calculate_angle_res(self._data[self.first_dimension]/100.)
 
     @property
     def fh(self):
@@ -439,6 +449,9 @@ class FurunoStore(AbstractDataStore):
         elif name == "QUAL":
             add_offset = 0
             scale_factor = 1
+        elif name in  ["azimuth", "elevation"]:
+            add_offset = 0
+            scale_factor = 1e-2
         else:
             add_offset = -327.68
             scale_factor = 1e-2
@@ -446,8 +459,13 @@ class FurunoStore(AbstractDataStore):
         mapping = moments_mapping.get(name, {})
         attrs = {key: mapping[key] for key in moment_attrs if key in mapping}
         if name in ["azimuth", "elevation"]:
-            attrs == az_attrs if name == "azimuth" else el_attrs
+            attrs = az_attrs if name == "azimuth" else el_attrs
+            attrs["add_offset"] = add_offset
+            attrs["scale_factor"] = scale_factor
             dims = (dim,)
+            if name == self.ds.first_dimension:
+                attrs["a1gate"] = self.ds.a1gate
+                attrs["angle_res"] = self.ds.angle_res
         else:
             attrs["add_offset"] = add_offset
             attrs["scale_factor"] = scale_factor
@@ -460,169 +478,95 @@ class FurunoStore(AbstractDataStore):
         #print(Variable((dim, "range"), data, attrs, encoding))
         return Variable(dims, data, attrs, encoding)
 
-    #     def open_store_coordinates(self, var):
+    def open_store_coordinates(self):
 
-    #         dim = self.root.first_dimension
-    #         ray = var["slicedata"]["rayinfo"]
+        #         dstr = var["slicedata"]["@date"]
+        #         tstr = var["slicedata"]["@time"]
 
-    #         if not isinstance(ray, list):
-    #             var["slicedata"]["rayinfo"] = [ray]
-    #             ray = var["slicedata"]["rayinfo"]
+        dim = self.ds.first_dimension
 
-    #         start = next(filter(lambda x: x["@refid"] == "startangle", ray), False)
-    #         start_idx = ray.index(start)
-    #         stop = next(filter(lambda x: x["@refid"] == "stopangle", ray), False)
+        # range is in km
+        start_range = 0
+        range_step = self.ds.header["resolution_range_direction"]
+        stop_range = range_step * self.ds.header["number_range_direction_data"]
+        rng = np.arange(
+            start_range + range_step / 2,
+            stop_range + range_step / 2,
+            range_step,
+            dtype="float32",
+        )
 
-    #         anglestep = self.root._get_rbdict_value(var, "anglestep", dtype=float)
-    #         antdirection = self.root._get_rbdict_value(
-    #             var, "antdirection", default=0, dtype=bool
-    #         )
+        range_attrs["meters_to_center_of_first_gate"] = start_range + range_step / 2
+        range_attrs["meters_between_gates"] = range_step
+        rng = Variable(("range",), rng, range_attrs)
 
-    #         encoding = {"group": self._group}
-    #         startangle = indexing.LazilyOuterIndexedArray(
-    #             RainbowArrayWrapper(self, start_idx, start)
-    #         )
+        # making-up ray times
+        time = self.ds.header["scan_start_time"]
+        stop_time = self.ds.header["scan_stop_time"]
+        num_rays = self.ds.header["number_sweep_direction_data"]
+        raytime = (stop_time - time) / num_rays
+        raytimes = np.array(
+            [
+                (x * raytime).total_seconds()
+                for x in range(num_rays + 1)
+            ]
+        )
 
-    #         step = anglestep
-    #         # antdirection == True ->> negative angles
-    #         # antdirection == False ->> positive angles
-    #         if antdirection:
-    #             step = -anglestep
+        total_seconds = (time - dt.datetime(1970, 1, 1)).total_seconds()
 
-    #         if dim == "azimuth":
-    #             startaz = Variable((dim,), startangle, az_attrs, encoding)
+        diff = np.diff(raytimes) / 2.0
+        rtime = raytimes[:-1] + diff
+        rtime_attrs = {
+            "units": f"seconds since {time.isoformat()}Z",
+            "standard_name": "time",
+        }
 
-    #             if stop:
-    #                 stop_idx = ray.index(stop)
-    #                 stopangle = indexing.LazilyOuterIndexedArray(
-    #                     RainbowArrayWrapper(self, stop_idx, stop)
-    #                 )
-    #                 stopaz = Variable((dim,), stopangle, az_attrs, encoding)
-    #                 zero_index = np.where(startaz - stopaz > 5)
-    #                 stopazv = stopaz.values
-    #                 stopazv[zero_index[0]] += 360
-    #                 azimuth = (startaz + stopazv) / 2.0
-    #                 azimuth[azimuth >= 360] -= 360
-    #             else:
-    #                 azimuth = startaz + step / 2.0
+        encoding = {}
+        rng = Variable(("range",), rng, range_attrs)
+        rtime = Variable((dim,), rtime, rtime_attrs, encoding)
+        time = Variable((), total_seconds, time_attrs, encoding)
 
-    #             elevation = np.ones_like(azimuth) * float(var["posangle"])
-    #         else:
-    #             startel = Variable((dim,), startangle, el_attrs, encoding)
+        # get coordinates from Furuno File
+        sweep_mode = "azimuth_surveillance" if dim == "azimuth" else "rhi"
+        lon_attrs = {
+            "long_name": "longitude",
+            "units": "degrees_east",
+            "standard_name": "longitude",
+        }
+        lat_attrs = {
+            "long_name": "latitude",
+            "units": "degrees_north",
+            "positive": "up",
+            "standard_name": "latitude",
+        }
+        alt_attrs = {
+            "long_name": "altitude",
+            "units": "meters",
+            "standard_name": "altitude",
+        }
+        lon, lat, alt = self.ds.site_coords
 
-    #             if stop:
-    #                 stop_idx = ray.index(stop)
-    #                 stopangle = indexing.LazilyOuterIndexedArray(
-    #                     RainbowArrayWrapper(self, stop_idx, stop)
-    #                 )
-    #                 stopel = Variable((dim,), stopangle, el_attrs, encoding)
-    #                 elevation = (startel + stopel) / 2.0
-    #             else:
-    #                 elevation = startel + step / 2.0
+        coords = {
+            "range": rng,
+            "time": time,
+            "rtime": rtime,
+            "longitude": Variable((), lon, lon_attrs),
+            "latitude": Variable((), lat, lat_attrs),
+            "altitude": Variable((), alt, alt_attrs),
+            "sweep_mode": Variable((), sweep_mode),
+        }
 
-    #             azimuth = np.ones_like(elevation) * float(var["posangle"])
-
-    #         dstr = var["slicedata"]["@date"]
-    #         tstr = var["slicedata"]["@time"]
-
-    #         timestr = f"{dstr}T{tstr}Z"
-    #         time = dt.datetime.strptime(timestr, "%Y-%m-%dT%H:%M:%SZ")
-    #         total_seconds = (time - dt.datetime(1970, 1, 1)).total_seconds()
-
-    #         # range is in km
-    #         start_range = self.root._get_rbdict_value(
-    #             var, "startrange", default=0, dtype=float
-    #         )
-    #         start_range *= 1000.0
-
-    #         stop_range = self.root._get_rbdict_value(var, "stoprange", dtype=float)
-    #         stop_range *= 1000.0
-
-    #         range_step = self.root._get_rbdict_value(var, "rangestep", dtype=float)
-    #         range_step *= 1000.0
-    #         rng = np.arange(
-    #             start_range + range_step / 2,
-    #             stop_range + range_step / 2,
-    #             range_step,
-    #             dtype="float32",
-    #         )[: int(var["slicedata"]["rawdata"]["@bins"])]
-
-    #         range_attrs["meters_to_center_of_first_gate"] = start_range + range_step / 2
-    #         range_attrs["meters_between_gates"] = range_step
-
-    #         # making-up ray times
-    #         antspeed = self.root._get_rbdict_value(var, "antspeed", dtype=float)
-    #         raytime = anglestep / antspeed
-    #         raytimes = np.array(
-    #             [
-    #                 dt.timedelta(seconds=x * raytime).total_seconds()
-    #                 for x in range(azimuth.shape[0] + 1)
-    #             ]
-    #         )
-
-    #         diff = np.diff(raytimes) / 2.0
-    #         rtime = raytimes[:-1] + diff
-    #         rtime_attrs = {
-    #             "units": f"seconds since {time.isoformat()}Z",
-    #             "standard_name": "time",
-    #         }
-
-    #         rng = Variable(("range",), rng, range_attrs)
-    #         azimuth = Variable((dim,), azimuth, az_attrs, encoding)
-    #         elevation = Variable((dim,), elevation, el_attrs, encoding)
-    #         rtime = Variable((dim,), rtime, rtime_attrs, encoding)
-    #         time = Variable((), total_seconds, time_attrs, encoding)
-
-    #         # get coordinates from RainbowFile
-    #         sweep_mode = "azimuth_surveillance" if dim == "azimuth" else "rhi"
-    #         lon_attrs = {
-    #             "long_name": "longitude",
-    #             "units": "degrees_east",
-    #             "standard_name": "longitude",
-    #         }
-    #         lat_attrs = {
-    #             "long_name": "latitude",
-    #             "units": "degrees_north",
-    #             "positive": "up",
-    #             "standard_name": "latitude",
-    #         }
-    #         alt_attrs = {
-    #             "long_name": "altitude",
-    #             "units": "meters",
-    #             "standard_name": "altitude",
-    #         }
-    #         lon, lat, alt = self.root.site_coords
-
-    #         coords = {
-    #             "azimuth": azimuth,
-    #             "elevation": elevation,
-    #             "range": rng,
-    #             "time": time,
-    #             "rtime": rtime,
-    #             "longitude": Variable((), lon, lon_attrs),
-    #             "latitude": Variable((), lat, lat_attrs),
-    #             "altitude": Variable((), alt, alt_attrs),
-    #             "sweep_mode": Variable((), sweep_mode),
-    #         }
-
-    #         # a1gate, this might be off by 1 if reindexing is applied
-    #         if dim == "azimuth":
-    #             a1gate = np.argmin(azimuth[::-1].values)
-    #         else:
-    #             a1gate = np.argmin(elevation[::-1].values)
-    #         coords[dim].attrs["a1gate"] = a1gate
-    #         # angle_res
-    #         coords[dim].attrs["angle_res"] = anglestep
-    #         return coords
+        return coords
 
     def get_variables(self):
         return FrozenDict(
-            # (k1, v1)
-            # for k1, v1 in dict(
-            (k, self.open_store_variable(k, v))
-            for k, v in self.ds.data.items()
-            # **self.open_store_coordinates(self.ds),
-            #            }.items()
+            (k1, v1)
+            for k1, v1 in {
+                **dict(
+                    (k, self.open_store_variable(k, v))
+                    for k, v in self.ds.data.items()),
+                **self.open_store_coordinates()
+            }.items()
         )
 
     def get_attrs(self):
