@@ -28,6 +28,7 @@ __all__ = [
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import datetime as dt
+import gzip
 import io
 import struct
 from collections import OrderedDict
@@ -174,7 +175,7 @@ class FurunoFile:
             self._fp = open(filename, "rb")
             self._fh = np.memmap(self._fp, mode="r")
         else:
-            if isinstance(filename, io.BytesIO):
+            if isinstance(filename, (io.BytesIO, gzip.GzipFile)):
                 filename.seek(0)
                 filename = filename.read()
             self._fh = np.frombuffer(filename, dtype=np.uint8)
