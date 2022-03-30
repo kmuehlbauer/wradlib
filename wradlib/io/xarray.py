@@ -438,14 +438,14 @@ range_attrs = {
     "meters_to_center_of_first_gate": None,
 }
 
-az_attrs = {
+az_attrs_template = {
     "standard_name": "ray_azimuth_angle",
     "long_name": "azimuth_angle_from_true_north",
     "units": "degrees",
     "axis": "radial_azimuth_coordinate",
 }
 
-el_attrs = {
+el_attrs_template = {
     "standard_name": "ray_elevation_angle",
     "long_name": "elevation_angle_from_horizontal_plane",
     "units": "degrees",
@@ -857,6 +857,8 @@ class _OdimH5NetCDFMetadata:
         if dim == dims[1]:
             dims = (dims[1], dims[0])
 
+        az_attrs = az_attrs_template.copy()
+        el_attrs = el_attrs_template.copy()
         az_attrs["a1gate"] = a1gate
 
         if dim == "azimuth":
@@ -1150,6 +1152,8 @@ class _GamicH5NetCDFMetadata:
         sort_idx = np.argsort(angles)
         a1gate = np.argsort(ray_header["rtime"][sort_idx])[0]
 
+        az_attrs = az_attrs_template.copy()
+        el_attrs = el_attrs_template.copy()
         az_attrs["a1gate"] = a1gate
 
         if dim == "azimuth":
@@ -1633,7 +1637,7 @@ def open_radar_dataset(filename_or_obj, engine=None, **kwargs):
     filename_or_obj : str, Path, file-like or Datastore
         Strings and Path objects are interpreted as a path to a local or remote
         radar file and opened with an appropriate engine.
-    engine : {"odim", "gamic", "cfradial1", "cfradial2", "iris", "rainbow"}
+    engine : {"odim", "furuno", "gamic", "cfradial1", "cfradial2", "iris", "rainbow"}
         Engine to use when reading files.
 
     Keyword Arguments
@@ -1652,7 +1656,7 @@ def open_radar_dataset(filename_or_obj, engine=None, **kwargs):
     --------
     :func:`~wradlib.io.xarray.open_radar_mfdataset`
     """
-    if engine not in ["cfradial1", "cfradial2", "gamic", "odim", "iris", "rainbow"]:
+    if engine not in ["cfradial1", "cfradial2", "furuno", "gamic", "odim", "iris", "rainbow"]:
         raise TypeError(f"Missing or unknown `engine` keyword argument '{engine}'.")
 
     group = kwargs.pop("group", None)
@@ -1674,6 +1678,8 @@ def open_radar_dataset(filename_or_obj, engine=None, **kwargs):
             groups = _get_iris_group_names(filename_or_obj)
         elif engine in ["rainbow"]:
             groups = _get_rainbow_group_names(filename_or_obj)
+        elif engine in ["furuno"]:
+            groups = [group]
         elif isinstance(group, str):
             groups = [group]
         elif isinstance(group, int):

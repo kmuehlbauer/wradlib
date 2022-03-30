@@ -6,9 +6,9 @@
 Furuno binary Data I/O
 ^^^^^^^^^^^^^^^^^^^^^^
 
-Reads data from Furuno's SCNX data formats
+Reads data from Furuno's binary data formats
 
-To read from Furuno SCNX files :class:`numpy:numpy.memmap` is used to get access to
+To read from Furuno files :class:`numpy:numpy.memmap` is used to get access to
 the data. The Furuno header is read in any case into dedicated OrderedDict's.
 Reading sweep data can be skipped by setting `loaddata=False`.
 By default the data is decoded on the fly.
@@ -21,41 +21,53 @@ Using `rawdata=True` the data will be kept undecoded.
    {}
 """
 __all__ = [
-    "FurunoHeaderBase",
-    "FurunoMainHeader",
     "FurunoFile",
+    "open_furuno_dataset",
+    "open_furuno_mfdataset",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
-import contextlib
-import copy
 import datetime as dt
 import io
 import struct
-import warnings
 from collections import OrderedDict
 
 import numpy as np
 
+# todo: move to something like "core" module
+from wradlib.io.iris import (
+    SINT2,
+    SINT4,
+    UINT1,
+    UINT2,
+    UINT4,
+    _get_fmt_string,
+    _unpack_dictionary,
+)
 from wradlib.io.xarray import (
     _calculate_angle_res,
     open_radar_dataset,
     open_radar_mfdataset,
     raise_on_missing_xarray_backend,
 )
-from wradlib.io.iris import (_unpack_dictionary, _get_fmt_string,
-                             UINT1, UINT2, UINT4, SINT2, SINT4)
+
 
 def decode_time(data):
     """Decode `YMDS_TIME` into datetime object."""
     time = _unpack_dictionary(data, YMDS_TIME)
-    #print(time)
     try:
-        t = dt.datetime(time["year"], time["month"], time["day"],
-                        time["hour"], time["minute"], time["second"])
+        t = dt.datetime(
+            time["year"],
+            time["month"],
+            time["day"],
+            time["hour"],
+            time["minute"],
+            time["second"],
+        )
         return t
     except ValueError:
         return None
+
 
 YMDS_TIME = OrderedDict(
     [
@@ -72,7 +84,15 @@ YMDS_TIME = OrderedDict(
 LEN_YMDS_TIME = struct.calcsize(_get_fmt_string(YMDS_TIME))
 _YMDS_TIME = {"size": f"{LEN_YMDS_TIME}s", "func": decode_time, "fkw": {}}
 
-
+# Furuno Operator's Manual WR2120
+# data file type 3 binary v10
+# 7.3 pp. 61-66
+HEADER_HEAD = OrderedDict(
+    [
+        ("size_of_header", UINT2),
+        ("format_version", UINT2),
+    ]
+)
 MAIN_HEADER = OrderedDict(
     [
         ("size_of_header", UINT2),
@@ -140,67 +160,9 @@ MAIN_HEADER = OrderedDict(
     ]
 )
 
-LEN_MAIN_HEADER = struct.calcsize(_get_fmt_string(MAIN_HEADER))
 
-# ds.filepos
-# dlen = 936 * 2
-# moff = 0
-# start = 156
-# rr = ds._fh[start:].view(dtype="uint16").reshape(722, -1)#[start+6+moff:start+722*(dlen*8+6):8*dlen+6]#.view(dtype=np.uint16).reshape(722,936)
-# rr = rr[:, 4:].reshape(722, 9, 936)
-# rr.shape
-# wrl.vis.plot_ppi(rr[:, 1, :]/100 - 32768/100, vmin=0, vmax=50, cmap="turbo")
-
-class FurunoHeaderBase:
-    """Base Class for Furuno Headers."""
-
-    def __init__(self, **kwargs):
-        super().__init__()
-
-    def init_header(self):
-        pass
-
-
-class FurunoMainHeader(FurunoHeaderBase):
-    """Furuno Main Header class."""
-
-    len = LEN_MAIN_HEADER
-    structure = MAIN_HEADER
-    name = "_main_header"
-
-    def __init__(self, **kwargs):
-        super().__init__(**kwargs)
-        self._main_header = None
-
-    @property
-    def header(self):
-        """Returns ingest_header dictionary."""
-        return self._main_header
-
-    @property
-    def version(self):
-        return self.header["format_version"]
-
-    @property
-    def site_coords(self):
-        return (
-            self.header["longitude"]/1e5,
-            self.header["latitude"] / 1e5,
-            self.header["altitude"] / 1e2,
-        )
-
-
-class FurunoFileBase:
-    """Base class for Iris Files."""
-
-    def __init__(self, **kwargs):
-        super().__init__()
-
-
-class FurunoFile(FurunoFileBase, FurunoMainHeader):
-    """IrisFile class"""
-
-    identifier = ["MAIN_HEADER"]
+class FurunoFile:
+    """FurunoFile class"""
 
     def __init__(self, filename, **kwargs):
         self._debug = kwargs.get("debug", False)
@@ -218,32 +180,57 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
             self._fh = np.frombuffer(filename, dtype=np.uint8)
         self._filepos = 0
         self._data = None
-        super().__init__(**kwargs)
-        # read first structure header
-        self.get_header(FurunoMainHeader)
+        # read header
+        len = struct.calcsize(_get_fmt_string(HEADER_HEAD))
+        head = _unpack_dictionary(self.read_from_file(len), HEADER_HEAD)
+        if head["format_version"] == 10:
+            header = MAIN_HEADER
+        self._filepos = 0
+        self.get_header(header)
         self._filepos = 0
         if self._loaddata:
             self.get_data()
 
     def get_data(self):
         if self._data is None:
-            moments = ["RR", "DBZH", "VRADH", "ZDR", "KDP", "PHIDP", "RHOHV", "WRADH",
-                       "QUAL", "RES1", "RES2", "RES3", "RES4", "RES5", "RES6", "FIX"]
+            moments = [
+                "RR",
+                "DBZH",
+                "VRADH",
+                "ZDR",
+                "KDP",
+                "PHIDP",
+                "RHOHV",
+                "WRADH",
+                "QUAL",
+                "RES1",
+                "RES2",
+                "RES3",
+                "RES4",
+                "RES5",
+                "RES6",
+                "FIX",
+            ]
+            # check available moments
             items = dict()
             for i in range(9):
                 if (self.header["record_item"] & 2 ** i) == 2 ** i:
                     items[i] = moments[i]
+            # claim available moments
             rays = self.header["number_sweep_direction_data"]
             rng = self.header["number_range_direction_data"]
-            start = 156
+            start = self.header["size_of_header"]
             cnt = len(items)
             raw_data = self._fh[start:].view(dtype="uint16").reshape(rays, -1)
             data = raw_data[:, 4:].reshape(rays, cnt, rng)
-            angles = raw_data[:, :4].reshape(rays, 4)
             self._data = dict()
             for i in range(cnt):
                 self._data[items[i]] = data[:, i, :]
-            self._data["azimuth"] = angles[:, 1]
+            # get angles
+            angles = raw_data[:, :4].reshape(rays, 4)
+            self._data["azimuth"] = np.fmod(
+                angles[:, 1] + self.header["azimuth_offset"], 36000
+            )
             self._data["elevation"] = angles[:, 2]
         return self._data
 
@@ -258,6 +245,23 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
 
     def __exit__(self, type, value, traceback):
         self.close()
+
+    @property
+    def header(self):
+        """Returns ingest_header dictionary."""
+        return self._header
+
+    @property
+    def version(self):
+        return self.header["format_version"]
+
+    @property
+    def site_coords(self):
+        return (
+            self.header["longitude"] / 1e5,
+            self.header["latitude"] / 1e5,
+            self.header["altitude"] / 1e2,
+        )
 
     @property
     def data(self):
@@ -302,7 +306,7 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
 
     @property
     def angle_res(self):
-        return _calculate_angle_res(self._data[self.first_dimension]/100.)
+        return _calculate_angle_res(self._data[self.first_dimension] / 100.0)
 
     @property
     def fh(self):
@@ -334,283 +338,76 @@ class FurunoFile(FurunoFileBase, FurunoMainHeader):
         return self._fh[start : self._filepos]
 
     def get_header(self, header):
-        head = _unpack_dictionary(
-            self.read_from_file(header.len), header.structure, self._rawdata
-        )
-        setattr(self, header.name, head)
-        header.init_header(self)
-
-
-from xarray.backends.common import (
-    AbstractDataStore,
-    BackendArray,
-    BackendEntrypoint,
-    find_root_and_group,
-)
-from xarray.backends.file_manager import CachingFileManager, DummyFileManager
-from wradlib.io.furuno import FurunoFile
-from xarray.backends.store import StoreBackendEntrypoint
-from xarray.core.utils import Frozen, FrozenDict, close_on_error, is_remote_uri
-from xarray.core import indexing
-from xarray.core.variable import Variable
-from wradlib.io.xarray import (
-    _assign_data_radial,
-    _assign_data_radial2,
-    _fix_angle,
-    _GamicH5NetCDFMetadata,
-    _get_gamic_variable_name_and_attrs,
-    _get_odim_variable_name_and_attrs,
-    _OdimH5NetCDFMetadata,
-    _reindex_angle,
-    az_attrs,
-    el_attrs,
-    iris_mapping,
-    moment_attrs,
-    moments_mapping,
-    rainbow_mapping,
-    range_attrs,
-    time_attrs,
-)
-import xarray as xr
-
-
-class FurunoArrayWrapper(BackendArray):
-    def __init__(
-            self,
-            data,
-    ):
-        self.data = data
-        self.shape = data.shape
-        self.dtype = np.dtype("uint16")
-
-    def __getitem__(self, key: tuple):
-        return xr.core.indexing.explicit_indexing_adapter(
-            key,
-            self.shape,
-            xr.core.indexing.IndexingSupport.BASIC,
-            self._raw_indexing_method,
+        len = struct.calcsize(_get_fmt_string(header))
+        self._header = _unpack_dictionary(
+            self.read_from_file(len), header, self._rawdata
         )
 
-    def _raw_indexing_method(self, key: tuple):
-        return self.data[key]
+
+def open_furuno_dataset(filename_or_obj, group=None, **kwargs):
+    """Open and decode a Furuno radar sweep from a file or file-like object.
+
+    This function uses :func:`~wradlib.io.open_radar_dataset`` under the hood.
+
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    group : str, optional
+        Path to a sweep group in the given file to open.
+
+    Keyword Arguments
+    -----------------
+    **kwargs : dict, optional
+        Additional arguments passed on to :py:func:`xarray.open_dataset`.
+
+    Returns
+    -------
+    dataset : :py:class:`xarray:xarray.Dataset` or :class:`wradlib.io.xarray.RadarVolume`
+        The newly created radar dataset or radar volume.
+
+    See Also
+    --------
+    :func:`~wradlib.io.furuno.open_furuno_mfdataset`
+    """
+    raise_on_missing_xarray_backend()
+    kwargs["group"] = group
+    return open_radar_dataset(filename_or_obj, engine="furuno", **kwargs)
 
 
-class FurunoStore(AbstractDataStore):
-    """Store for reading RAINBOW5 sweeps via wradlib."""
+def open_furuno_mfdataset(filename_or_obj, group=None, **kwargs):
+    """Open and decode a Furuno radar sweep from a file or file-like object.
 
-    def __init__(self, manager, group=None):
+    This function uses :func:`~wradlib.io.xarray.open_radar_mfdataset` under the hood.
+    Needs `dask` package to be installed.
 
-        self._manager = manager
-        self._group = group
-        self._filename = self.filename
-        self._need_time_recalc = False
+    Parameters
+    ----------
+    filename_or_obj : str, Path, file-like or DataStore
+        Strings and Path objects are interpreted as a path to a local or remote
+        radar file and opened with an appropriate engine.
+    group : str, optional
+        Path to a sweep group in the given file to open.
 
-    @classmethod
-    def open(cls, filename, mode="r", group=None, **kwargs):
-        manager = CachingFileManager(FurunoFile, filename, mode=mode, kwargs=kwargs)
-        return cls(manager, group=group)
+    Keyword Arguments
+    -----------------
+    reindex_angle : bool or float
+        Defaults to None (reindex angle with tol=0.4deg). If given a floating point
+        number, it is used as tolerance. If False, no reindexing is performed.
+        Only invoked if `decode_coord=True`.
+    **kwargs : dict, optional
+        Additional arguments passed on to :py:func:`xarray:xarray.open_dataset`.
 
-    @property
-    def filename(self):
-        with self._manager.acquire_context(False) as root:
-            return root.filename
+    Returns
+    -------
+    dataset : :py:class:`xarray:xarray.Dataset` or :class:`wradlib.io.xarray.RadarVolume`
+        The newly created radar dataset or radar volume.
 
-    @property
-    def root(self):
-        with self._manager.acquire_context(False) as root:
-            return root
-
-    def _acquire(self, needs_lock=True):
-        with self._manager.acquire_context(needs_lock) as root:
-            return root
-            # ds = root#.header["scan"]["slice"][self._group]
-            # except KeyError:
-            #    ds = root.header["scan"]["slice"]
-        # return ds
-
-    @property
-    def ds(self):
-        return self._acquire()
-
-    def open_store_variable(self, name, var):
-        dim = self.root.first_dimension
-
-        data = indexing.LazilyOuterIndexedArray(FurunoArrayWrapper(var))
-        encoding = {"group": self._group}
-        if name == "PHIDP":
-            add_offset = 360 * -32768 / 65535
-            scale_factor = 360 / 65535
-        elif name == "RHOHV":
-            add_offset = 2 * -1 / 65534
-            scale_factor = 2 / 65534
-        elif name == "WRADH":
-            add_offset = -1e-2
-            scale_factor = 1e-2
-        elif name == "QUAL":
-            add_offset = 0
-            scale_factor = 1
-        elif name in  ["azimuth", "elevation"]:
-            add_offset = 0
-            scale_factor = 1e-2
-        else:
-            add_offset = -327.68
-            scale_factor = 1e-2
-
-        mapping = moments_mapping.get(name, {})
-        attrs = {key: mapping[key] for key in moment_attrs if key in mapping}
-        if name in ["azimuth", "elevation"]:
-            attrs = az_attrs if name == "azimuth" else el_attrs
-            attrs["add_offset"] = add_offset
-            attrs["scale_factor"] = scale_factor
-            dims = (dim,)
-            if name == self.ds.first_dimension:
-                attrs["a1gate"] = self.ds.a1gate
-                attrs["angle_res"] = self.ds.angle_res
-        else:
-            attrs["add_offset"] = add_offset
-            attrs["scale_factor"] = scale_factor
-            attrs["_FillValue"] = 0
-            dims = (dim, "range")
-        attrs[
-           "coordinates"
-        ] = "elevation azimuth range latitude longitude altitude time rtime sweep_mode"
-        #print(attrs)
-        #print(Variable((dim, "range"), data, attrs, encoding))
-        return Variable(dims, data, attrs, encoding)
-
-    def open_store_coordinates(self):
-
-        #         dstr = var["slicedata"]["@date"]
-        #         tstr = var["slicedata"]["@time"]
-
-        dim = self.ds.first_dimension
-
-        # range is in km
-        start_range = 0
-        range_step = self.ds.header["resolution_range_direction"]
-        stop_range = range_step * self.ds.header["number_range_direction_data"]
-        rng = np.arange(
-            start_range + range_step / 2,
-            stop_range + range_step / 2,
-            range_step,
-            dtype="float32",
-        )
-
-        range_attrs["meters_to_center_of_first_gate"] = start_range + range_step / 2
-        range_attrs["meters_between_gates"] = range_step
-        rng = Variable(("range",), rng, range_attrs)
-
-        # making-up ray times
-        time = self.ds.header["scan_start_time"]
-        stop_time = self.ds.header["scan_stop_time"]
-        num_rays = self.ds.header["number_sweep_direction_data"]
-        raytime = (stop_time - time) / num_rays
-        raytimes = np.array(
-            [
-                (x * raytime).total_seconds()
-                for x in range(num_rays + 1)
-            ]
-        )
-
-        total_seconds = (time - dt.datetime(1970, 1, 1)).total_seconds()
-
-        diff = np.diff(raytimes) / 2.0
-        rtime = raytimes[:-1] + diff
-        rtime_attrs = {
-            "units": f"seconds since {time.isoformat()}Z",
-            "standard_name": "time",
-        }
-
-        encoding = {}
-        rng = Variable(("range",), rng, range_attrs)
-        rtime = Variable((dim,), rtime, rtime_attrs, encoding)
-        time = Variable((), total_seconds, time_attrs, encoding)
-
-        # get coordinates from Furuno File
-        sweep_mode = "azimuth_surveillance" if dim == "azimuth" else "rhi"
-        lon_attrs = {
-            "long_name": "longitude",
-            "units": "degrees_east",
-            "standard_name": "longitude",
-        }
-        lat_attrs = {
-            "long_name": "latitude",
-            "units": "degrees_north",
-            "positive": "up",
-            "standard_name": "latitude",
-        }
-        alt_attrs = {
-            "long_name": "altitude",
-            "units": "meters",
-            "standard_name": "altitude",
-        }
-        lon, lat, alt = self.ds.site_coords
-
-        coords = {
-            "range": rng,
-            "time": time,
-            "rtime": rtime,
-            "longitude": Variable((), lon, lon_attrs),
-            "latitude": Variable((), lat, lat_attrs),
-            "altitude": Variable((), alt, alt_attrs),
-            "sweep_mode": Variable((), sweep_mode),
-        }
-
-        return coords
-
-    def get_variables(self):
-        return FrozenDict(
-            (k1, v1)
-            for k1, v1 in {
-                **dict(
-                    (k, self.open_store_variable(k, v))
-                    for k, v in self.ds.data.items()),
-                **self.open_store_coordinates()
-            }.items()
-        )
-
-    def get_attrs(self):
-        attributes = {"fixed_angle": float(self.ds.fixed_angle)}
-        return FrozenDict(attributes)
-
-
-class FurunoBackendEntrypoint(BackendEntrypoint):
-    """Xarray BackendEntrypoint for Rainbow5 data."""
-
-    def open_dataset(
-            self,
-            filename_or_obj,
-            *,
-            mask_and_scale=True,
-            decode_times=True,
-            concat_characters=True,
-            decode_coords=True,
-            drop_variables=None,
-            use_cftime=None,
-            decode_timedelta=None,
-            group=None,
-            reindex_angle=None,
-    ):
-        store = FurunoStore.open(
-            filename_or_obj,
-            group=group,
-            loaddata=True,
-        )
-
-        store_entrypoint = StoreBackendEntrypoint()
-
-        ds = store_entrypoint.open_dataset(
-            store,
-            mask_and_scale=mask_and_scale,
-            decode_times=decode_times,
-            concat_characters=concat_characters,
-            decode_coords=decode_coords,
-            drop_variables=drop_variables,
-            use_cftime=use_cftime,
-            decode_timedelta=decode_timedelta,
-        )
-
-        # if decode_coords and reindex_angle is not False:
-        #    ds = ds.pipe(_reindex_angle, store=store, tol=reindex_angle)
-
-        return ds
+    See Also
+    --------
+    :func:`~wradlib.io.furuno.open_furuno_dataset`
+    """
+    raise_on_missing_xarray_backend()
+    kwargs["group"] = group
+    return open_radar_mfdataset(filename_or_obj, engine="furuno", **kwargs)
