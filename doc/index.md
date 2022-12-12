@@ -1,5 +1,4 @@
-{{wradlib}}: An Open Source Library for Weather Radar Data Processing
-=================================================================
+# {{wradlib}}: An Open Source Library for Weather Radar Data Processing
 
 **Release:** {{release}}\
 **Date:** {{today}}
@@ -34,13 +33,11 @@ with high spatio-temporal resolution over large areas makes it an invaluable too
 
 This documentation is under steady development. It provides a complete library reference as well as a set of tutorials which will get you started in working with {{wradlib}}.
 
-License
-=======
+# License
 
 {{wradlib}} is available under the open source [MIT License](https://opensource.org/licenses/MIT).
 
-Indices and tables
-==================
+# Indices and tables
 - {ref}`genindex`
 - {ref}`modindex`
 - {ref}`search`

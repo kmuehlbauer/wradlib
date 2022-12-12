@@ -245,7 +245,7 @@ def _custom_edit_url(
         )
         if modpath == "modules":
             # main package listing
-            modpath = "xradar"
+            modpath = "wradlib"
         rel_modpath = os.path.join("..", modpath)
         if os.path.isdir(rel_modpath):
             docpath = modpath + "/"

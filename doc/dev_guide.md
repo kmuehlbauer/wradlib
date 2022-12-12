@@ -12,7 +12,7 @@ $ git clone https://github.com/wradlib/wradlib.git
 
 ## Contributing
 
-Everyone can contribute to the developement of {{wradlib}} by using the Fork and Pull model. For this purpose, you need to set up ``Git`` (see section [](#setup)). Then see section :doc:`community` for further instructions on how to create a Pull Request.
+Everyone can contribute to the developement of {{wradlib}} by using the Fork and Pull model. For this purpose, you need to set up ``Git`` (see section [](#setup)). Then see section {doc}`community` for further instructions on how to create a Pull Request.
 
 
 ## Building documentation
@@ -23,7 +23,7 @@ Once these requirements are met, you can open a console window within the ``wrad
 
 ## Testing
 
-{{wradlib}} uses the [pytest}(https://docs.pytest.org/en/stable) framework. New functions should come with corresponding unittests in the ``wradlib/wradlib/tests`` directory. Just have a look at [available tests](https://github.com/wradlib/wradlib/tree/main/wradlib/tests) to get an idea. In addition, examples and docstrings are a good way to combine testing and documentation. Have a look at the [wradlib-notebooks](https://github.com/wradlib/wradlib-notebooks/tree/main/notebooks) in order to get an idea on how to set these up correctly. In the docstrings, the ``Examples`` section will be tested by our testing framework. This could look like this:
+{{wradlib}} uses the [pytest](https://docs.pytest.org/en/stable) framework. New functions should come with corresponding unittests in the ``wradlib/wradlib/tests`` directory. Just have a look at [available tests](https://github.com/wradlib/wradlib/tree/main/wradlib/tests) to get an idea. In addition, examples and docstrings are a good way to combine testing and documentation. Have a look at the [wradlib-notebooks](https://github.com/wradlib/wradlib-notebooks/tree/main/notebooks) in order to get an idea on how to set these up correctly. In the docstrings, the ``Examples`` section will be tested by our testing framework. This could look like this:
 
 ```python
 def foo(a):
@@ -40,4 +40,4 @@ def foo(a):
 
 ## Continuous Integration
 
-We use Github Actions for Continuous Integration (CI). CI means, in our case, that each commit pushed to {{wradlib}}'s main repository will trigger different test suites on the CI service. If all tests pass successfully, a new documentation will be built on https://readthedocs.org and published on https://docs.wradlib.org. In case a new release tag is associated with a commit, a new release will be distributed via [PyPI](https://pypi.org/project/wradlib).
+We use Github Actions for Continuous Integration (CI). CI means, in our case, that each commit pushed to {{wradlib}}'s main repository will trigger different test suites on the CI service. If all tests pass successfully, a new documentation will be built on [https://readthedocs.org](https://readthedocs.org) and published on [https://docs.wradlib.org](https://docs.wradlib.org). In case a new release tag is associated with a commit, a new release will be distributed via [PyPI](https://pypi.org/project/wradlib).
