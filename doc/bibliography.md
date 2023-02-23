@@ -1,19 +1,11 @@
 # Bibliography
 
+This page lists the referenced paper won which implemented algorithms are implemented.
+
 ```{bibliography} refs.bib
 ---
 all:
 style: wrlstyle
 labelprefix:
----
-```
-
-# Web resources
-
-```{bibliography} refs_links.bib
----
-all:
-style: plain
-labelprefix: B
 ---
 ```

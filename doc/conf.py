@@ -59,6 +59,24 @@ myst_enable_extensions = [
 
 myst_heading_anchors = 4
 
+# myst_url_schemes = {
+#     "http": None,
+#     "https": None,
+#     "wiki": "https://en.wikipedia.org/wiki/{{path}}#{{fragment}}",
+#     "doi": "https://doi.org/{{path}}",
+#     "gh-issue": {
+#         "url": "https://github.com/wradlib/wradlib/issue/{{path}}#{{fragment}}",
+#         "title": "Issue #{{path}}",
+#         "classes": ["github"],
+#     },
+#     "gh-pull": {
+#         "url": "https://github.com/wradlib/wradlib/pull/{{path}}#{{fragment}}",
+#         "title": "PullRequest #{{path}}",
+#         "classes": ["github"],
+#     },
+# }
+
+
 extlinks = {
     "issue": ("https://github.com/wradlib/wradlib/issues/%s", "GH"),
     "pull": ("https://github.com/wradlib/wradlib/pull/%s", "PR"),
@@ -79,7 +97,7 @@ master_doc = "index"
 
 # General information about the project.
 project = "wradlib"
-copyright = "2011-2022, wradlib developers"
+copyright = "2011-2023, wradlib developers"
 author = "Wradlib Community"
 url = "https://github.com/wradlib"
 
@@ -159,6 +177,10 @@ for k, v in wradlib.__dict__.items():
 
 # create API/Library reference md-file
 reference = """# Library Reference
+
+This page contains an auto-generated summary of {{wradlib}}'s API. Every submodule is
+documented separately.
+
 ```{toctree}
 :maxdepth: 1
 """
@@ -281,6 +303,7 @@ html_context = {
 #
 html_theme_options = {
     # "announcement": "<p>xradar is in an early stage of development, please report any issues <a href='https://github.com/openradar/xradar/issues'>here!</a></p>",
+    "repository_url": "https://github.com/wradlib/wradlib",
     "github_url": "https://github.com/wradlib/wradlib",
     "external_links": [
         {
@@ -312,7 +335,8 @@ html_theme_options = {
 }
 
 # html_theme = "sphinx_rtd_theme"
-html_theme = "pydata_sphinx_theme"
+# html_theme = "pydata_sphinx_theme"
+html_theme = "sphinx_book_theme"
 # html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 # html_theme_options = {'sticky_navigation': True}
 
@@ -381,7 +405,6 @@ bibtex_bibfiles = ["refs.bib", "refs_links.bib"]
 
 
 class WradlibLabelStyle(LabelStyle):
-
     # copy from AlphaStyle
     def format_label(self, entry):
         if entry.type == "book" or entry.type == "inbook":

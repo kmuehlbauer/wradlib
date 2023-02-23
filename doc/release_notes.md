@@ -7,6 +7,27 @@ Please note that {{wradlib}} releases follow [semantic versioning](https://semve
 
 You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip install wradlib`` or specific version via ``$ pip install wradlib==x.y.z``. The recommended installation process is described in {doc}`installation`.
 
+## Version 1.19.0
+
+This version is most likely the last version before wradlib 2.0. We've switched to use [xradar](https://docs.openradarscience.org/projects/xradar) for reading radar data in polar coordinates. The relevant code has been ported from wradlib to xradar and only a shallow compatibility layer is kept in wradlib.
+
+**New features**
+
+* Enhance Furuno Reader to read WR110 data ({pull}`606`) by {at}`kmuehlbauer`
+* New function for cross sections (RHI) from radar volume ({issue}`439`) by {at}`pandasambit15`  and ({pull}`610`) by {at}`JulianGiles`
+
+**Maintenance code**
+
+* Adapt codebase to use xradar, move/remove duplicate code ({pull}`617`) by {at}`kmuehlbauer`
+
+**Maintenance - CI**
+
+* several updates and fixes to the CI ({pull}`604`), ({pull}`613`), ({pull}`616`), ({pull}`618`) by {at}`kmuehlbauer`
+
+**Bugfixes**
+
+* delete tmp-files for VectorSource after closing ({issue}`608`) and ({pull}`609`) by {at}`plvoit`
+
 ## Version 1.18.0
 
 **New features**
@@ -176,7 +197,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 
 ## Version 1.10.0
 
-
 **New features**
 
 * add ODIM/GAMIC/CfRadial backends for ``Xarray`` ({pull}`487`) by {at}`kmuehlbauer`
@@ -196,7 +216,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * fix handle kwarg change scipy.cKDTree ({pull}`474`) by {at}`kmuehlbauer`
 
 ## Version 1.9.0
--
 
 **New features**
 
@@ -215,7 +234,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * simplify dimension angle handling ODIM/GAMIC ({pull}`462`) by {at}`kmuehlbauer`
 
 ## Version 1.8.0
--
 
 **New features**
 
@@ -232,15 +250,13 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * make `georeference_dataset` work with ND datasets ({pull}`446`) by {at}`kmuehlbauer`
 
 ## Version 1.7.4
--
 
 **Bugfixes**
 
-* update `vis.plot_scan_strategy()` ({issue}`441`) originally reported at `wradlib-users group](https://groups.google.com/g/wradlib-users/c/Vud23QpQtmo/m/ni-e_biVBAAJ) by {at}`pandasambit15` ({pull}`442`) by {at}`jorahu` and {at}`kmuehlbauer`
+* update `vis.plot_scan_strategy()` ({issue}`441`) originally reported at [wradlib-users group](https://groups.google.com/g/wradlib-users/c/Vud23QpQtmo/m/ni-e_biVBAAJ) by {at}`pandasambit15` ({pull}`442`) by {at}`jorahu` and {at}`kmuehlbauer`
 * add switch to keep elevation data unaltered (DWD terrain following scan) ({issue}`437`, {pull}`443`) by {at}`kmuehlbauer`
 
 ## Version 1.7.3
--
 
 **Bugfixes**
 
@@ -252,7 +268,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * pin isort  ({pull}`438`) by {at}`kmuehlbauer`
 
 ## Version 1.7.2
--
 
 **Bugfixes**
 
@@ -265,7 +280,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * minor changes to README.md
 
 ## Version 1.7.1
--
 
 **Maintenance**
 
@@ -277,7 +291,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * all above done in ({pull}`432`) by {at}`kmuehlbauer`
 
 ## Version 1.7.0
--
 
 **Highlights**
 
@@ -300,17 +313,14 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * introduce ``call_kwargs`` in :py:func:`comp.togrid` ({issue}`373`) reported by {at}`jorahu`  ({pull}`425`) by {at}`kmuehlbauer`
 
 ## Version 1.6.2
--
 
 * re-add removed IRIS features ({issue}`415`, {pull}`416`) by {at}`kmuehlbauer`
 
 ## Version 1.6.1
--
 
 * use LooseVersion to check for dependency matching ({issue}`413`, {pull}`414`) by {at}`kmuehlbauer`
 
 ## Version 1.6.0
--
 
 **Highlights**
 
@@ -342,7 +352,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * use Dataset.swap_dims instead of rename ({pull}`406`) by {at}`kmuehlbauer`
 
 ## Version 1.5.0
--
 
 **Highlights**
 
@@ -364,7 +373,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * set destination projection to destination dataset in `reproject_raster_dataset` (spotted by [wradlib-forum](https://groups.google.com/forum/#!msg/wradlib-users/-dvRhDCjgV0/X0JR4yL3BgAJ))
 
 ## Version 1.4.0
--
 
 **Highlights**
 
@@ -387,7 +395,6 @@ You can install the latest {{wradlib}} release from PyPI via ``$ python -m pip i
 * fix import for MutableMapping (added by {at}`zssherman`)
 
 ## Version 1.3.0
--
 
 **Highlights**
 

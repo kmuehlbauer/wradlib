@@ -6,7 +6,7 @@ In order to run {{wradlib}}, you need to have a Python interpreter installed on 
 
 Using Anaconda the installation process is harmonised across platforms. Download and install the latest [Anaconda distribution](https://www.anaconda.com/products/individual) for your specific OS. We recommend using the minimal distributions [Miniconda](https://conda.io/miniconda.html) or [Miniforge/Mambaforge](https://github.com/conda-forge/miniforge)  if you do not want to install a full scientific python stack.
 
-We are constantly performing tests with these distributions (for the most recent 3 python versions).
+We are constantly performing tests with [conda-forge](https://conda-forge.org/) community channel (for the most recent 3 python versions).
 
 If your Python installation is working, the following command (in a console) should work:
 
@@ -121,6 +121,7 @@ Installing via ``pip`` tries to install all dependencies, but be sure to have al
 | scipy      | >= 1.0  | >= 1.7.0    |
 | matplotlib | >= 3    | >= 3.3.0    |
 | xarray     | >= 0.17 | >= 0.20.2   |
+| xradar     | >= 0.1  | >= 0.1      |
 
 You can check whether the required [](#dependencies) are available on your computer by opening a Python console and enter:
 
@@ -151,6 +152,7 @@ As for now, the following dependencies are defined as optional:
 
 | Package    |    min    | recommended |
 |------------|-----------|-------------|
+ | cartopy    | >= 0.21   | >= latest   |
 | dask       | >= 2.20   | >= latest   |
 | gdal       | >= 2.4    | >= 3.1.0    |
 | h5py       | >= 2.0.1  | >= 3.1.0    |

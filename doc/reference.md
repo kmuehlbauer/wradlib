@@ -1,4 +1,8 @@
 # Library Reference
+
+This page contains an auto-generated summary of {{wradlib}}'s API. Every submodule is
+documented separately.
+
 ```{toctree}
 :maxdepth: 1
 

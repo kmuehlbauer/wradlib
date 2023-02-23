@@ -1,8 +1,8 @@
-# Developer Guide
+# Contributing Guide
 
 ## Setup
 
-The section {doc}`installation` will provide you with detailed guidance on how to install {{wradlib}} and the required dependencies for different operating systems (MS Windows, Linux, Mac OS). {{wradlib}} |release| has been tested with Mambaforge Python. It is available via `conda-forge` channel on linux-64, osx-64 and MS Windows 64 versions.
+The {doc}`installation` section will provide you with detailed guidance on how to install {{wradlib}} and the required dependencies for different operating systems (MS Windows, Linux, Mac OS). {{wradlib}} {{release}} has been tested with Mambaforge Python. It is available via `conda-forge` channel on linux-64, osx-64 and MS Windows 64 versions.
 
 As a developer, though, you should rather link into {{wradlib}}'s version control. This way, it will be easier for you to track changes and to contribute your changes to {{wradlib}}'s main respository (see next section). Just install [Git](https://git-scm.com), then clone the {{wradlib}} repository to your local system by executing the following command in your shell:
 
@@ -12,7 +12,17 @@ $ git clone https://github.com/wradlib/wradlib.git
 
 ## Contributing
 
-Everyone can contribute to the developement of {{wradlib}} by using the Fork and Pull model. For this purpose, you need to set up ``Git`` (see section [](#setup)). Then see section {doc}`community` for further instructions on how to create a Pull Request.
+Everyone can contribute to the developement of {{wradlib}} by using the Fork and Pull model. For this purpose, you need to set up ``Git`` (see section [](#setup)). Then start a [Pull Request](https://help.github.com/articles/creating-a-pull-request)!
+
+* **Step 1:** [Fork](https://github.com/wradlib/wradlib) your own {{wradlib}} repository from the {{wradlib}} [main repo](https://github.com/wradlib/wradlib).
+* **Step 2:** Implement your changes into the forked repository. Test your code.
+* **Step 3:** Now you want to feed these changes back into the main {{wradlib}} development branch? Start a [Pull Request](https://help.github.com/articles/creating-a-pull-request)!
+* **Step 4:** We will review your changes. On approval, we will merge your fork back into the main {{wradlib}} branch.
+* **Step 5:** Now everyone can benefit from your improvements.
+
+A step-by-step tutorial for a pull request can be found in the [GitHub documentation](https://guides.github.com/activities/forking).
+
+Finally, you are welcome to **contribute examples of your own** {{wradlib}} **applications** in the [wradlib-notebooks](https://github.com/wradlib/wradlib-notebooks).
 
 
 ## Building documentation
@@ -40,4 +50,4 @@ def foo(a):
 
 ## Continuous Integration
 
-We use Github Actions for Continuous Integration (CI). CI means, in our case, that each commit pushed to {{wradlib}}'s main repository will trigger different test suites on the CI service. If all tests pass successfully, a new documentation will be built on [https://readthedocs.org](https://readthedocs.org) and published on [https://docs.wradlib.org](https://docs.wradlib.org). In case a new release tag is associated with a commit, a new release will be distributed via [PyPI](https://pypi.org/project/wradlib).
+We use GitHub Actions for Continuous Integration (CI). CI means, in our case, that each commit pushed to {{wradlib}}'s main repository will trigger different test suites on the CI service. If all tests pass successfully, a new documentation will be built on [https://readthedocs.org](https://readthedocs.org) and published on [https://docs.wradlib.org](https://docs.wradlib.org). In case a new release tag is associated with a commit, a new release will be distributed via [PyPI](https://pypi.org/project/wradlib).

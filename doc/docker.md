@@ -22,7 +22,7 @@ Especially for easy integration with servers we setup the [wradlib-docker](https
    * conda *wradlib* environment with X.Y.Z wradlib release including all runtime dependencies
    * additional notebook and development packages
 
-## wradlib Docker Images
+## Installation
 
 In order to run these docker images as containers, you need to have *docker* installed on your local computer or server. Please refer to the [docker documentation](https://docs.docker.com/install) for installation guidance. Once you have docker installed and running you can use the provided *wradlib-docker* images. You can either pull them directly from docker hub or create them locally from the [wradlib-docker](https://github.com/wradlib/wradlib-docker) repository.
 

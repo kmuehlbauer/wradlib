@@ -6,22 +6,38 @@
 ```{toctree}
 :maxdepth: 2
 :hidden:
-:caption: User Guide
+:caption: For Users
 
-user_guide
-dev_guide
+installation
+docker
+ide
+jupyter
+community
+gallery
 reference
+bibliography
+weblinks
+```
+
+```{toctree}
+:maxdepth: 2
+:hidden:
+:caption: For Developers
+
+dev_guide
 release_notes
+
+
 ```
 
 
-The {{wradlib}} project has been initiated in order facilitate the use of weather radar data as well as to provide a common platform for research on new algorithms. {{wradlib}} is an open source library which is well documented and easy to use. It is written in the free programming language `Python <https://www.python.org>`_. As of version 1.3 {{wradlib}} is Python 3 only.
+The {{wradlib}} project has been initiated in order facilitate the use of weather radar data as well as to provide a common platform for research on new algorithms. {{wradlib}} is an open source library which is well documented and easy to use. It is written in the free programming language [Python](https://www.python.org).
 
 :::{note}
 Please cite {{wradlib}} as
-*Heistermann, M., Jacobi, S., and Pfaff, T.: Technical Note: An open source library for processing weather radar data (wradlib), Hydrol. Earth Syst. Sci., 17, 863-871,* doi:`10.5194/hess-17-863-2013, 2013 <https://hess.copernicus.org/articles/17/863/2013/hess-17-863-2013.pdf>`_
+*Heistermann, M., Jacobi, S., and Pfaff, T.: Technical Note: An open source library for processing weather radar data (wradlib), Hydrol. Earth Syst. Sci., 17, 863-871,* [doi:10.5194/hess-17-863-2013](https://hess.copernicus.org/articles/17/863/2013/hess-17-863-2013.pdf)
 
-If you refer to a specific {{wradlib}} version please cite using {{wradlib}}'s zenodo doi:`10.5281/zenodo.1209843 <https://doi.org/10.5281/zenodo.1209843>`_ for this version.
+If you refer to a specific {{wradlib}} version please cite using {{wradlib}}'s zenodo [doi:10.5281/zenodo.1209843](https://doi.org/10.5281/zenodo.1209843) for this version.
 :::
 
 ![old-radarpic](images/old_radarpic.png)

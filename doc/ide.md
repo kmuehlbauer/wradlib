@@ -16,4 +16,4 @@ However, if you have no idea which IDE to choose, why not start with [Spyder](ht
 $ spyder
 ```
 
-Alternatively, we can warmly recommend [PyCharm](https://www.jetbrains.com/pycharm) which has a free, yet powerful [Community Edition](https://www.jetbrains.com/pycharm/features).-
+Alternatively, we can warmly recommend [PyCharm](https://www.jetbrains.com/pycharm) which has a free, yet powerful [Community Edition](https://www.jetbrains.com/pycharm/features).
