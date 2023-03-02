@@ -53,9 +53,11 @@ __all__ = [
     "texture",
     "depolarization",
 ]
+__xr__ = ["xr_kdp_from_phidp"]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import numpy as np
+import xarray as xr
 from scipy import integrate, interpolate
 
 from wradlib import trafo, util
@@ -263,6 +265,21 @@ def _fill_sweep(dat, kind="nan_to_num", fill_value=0.0):
         invalidx = np.where(invalid)[0]
         dat[beam, invalidx] = f(invalidx)
     return dat.reshape(shape)
+
+
+def xr_kdp_from_phidp(da, winlen=7, **kwargs):
+    dr = da.range.diff("range").median("range").values / 1000.0
+    print("range res [km]:", dr)
+    print("processing window [km]:", dr * winlen)
+    return xr.apply_ufunc(
+        kdp_from_phidp,
+        da,
+        input_core_dims=[["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        kwargs=dict(winlen=winlen, dr=dr, **kwargs),
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
 
 
 def kdp_from_phidp(

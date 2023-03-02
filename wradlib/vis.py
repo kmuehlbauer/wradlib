@@ -27,7 +27,7 @@ __all__ = [
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
-__xr__ = ["xr_plot", "xr_contour", "xr_contourf", "xr_pcolormesh"]
+__xr__ = ["xr_plot"]
 
 import collections
 import os.path
@@ -49,21 +49,6 @@ axisartist = util.import_optional("mpl_toolkits.axisartist")
 angle_helper = util.import_optional("mpl_toolkits.axisartist.angle_helper")
 osr = util.import_optional("osgeo.osr")
 cartopy = util.import_optional("cartopy")
-
-
-def xr_contour(da, **kwargs):
-    kwargs.setdefault("func", "contour")
-    return xr_plot(da, **kwargs)
-
-
-def xr_contourf(da, **kwargs):
-    kwargs.setdefault("func", "contourf")
-    return xr_plot(da, **kwargs)
-
-
-def xr_pcolormesh(da, **kwargs):
-    kwargs.setdefault("func", "pcolormesh")
-    return xr_plot(da, **kwargs)
 
 
 def xr_plot(
@@ -262,11 +247,6 @@ def xr_plot(
     pl.sca(ax)
 
     return pm
-
-
-xr_contour.__doc__ = xr_plot.__doc__
-xr_contourf.__doc__ = xr_plot.__doc__
-xr_pcolormesh.__doc__ = xr_plot.__doc__
 
 
 def plot_ppi(
