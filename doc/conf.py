@@ -239,6 +239,23 @@ linkcheck_ignore = ["https://data.apps.fao.org/map/catalog/srv/eng/catalog.searc
 
 # Tell the theme where the code lives
 # adapted from https://github.com/vispy/vispy
+
+
+def get_docpath_filename(filename, modpath):
+    docpath = None
+    rel_modpath = os.path.join("..", modpath)
+    if os.path.isdir(rel_modpath):
+        docpath = modpath + "/"
+        filename = "__init__.py"
+    elif os.path.isfile(rel_modpath + ".py"):
+        docpath = os.path.dirname(modpath)
+        filename = os.path.basename(modpath) + ".py"
+    else:
+        modpath, _ = os.path.split(modpath)
+        docpath, filename = get_docpath_filename(filename, modpath)
+    return docpath, filename
+
+
 def _custom_edit_url(
     github_user,
     github_repo,
@@ -259,14 +276,8 @@ def _custom_edit_url(
         if modpath == "modules":
             # main package listing
             modpath = "wradlib"
-        rel_modpath = os.path.join("..", modpath)
-        if os.path.isdir(rel_modpath):
-            docpath = modpath + "/"
-            filename = "__init__.py"
-        elif os.path.isfile(rel_modpath + ".py"):
-            docpath = os.path.dirname(modpath)
-            filename = os.path.basename(modpath) + ".py"
-        else:
+        docpath, filename = get_docpath_filename(filename, modpath)
+        if docpath is None:
             warnings.warn(f"Not sure how to generate the API URL for: {filename}")
     return default_edit_page_url_template.format(
         github_user=github_user,
