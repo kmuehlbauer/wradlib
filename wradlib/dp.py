@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-# Copyright (c) 2011-2020, wradlib developers.
+# Copyright (c) 2011-2023, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
 """
@@ -52,8 +52,8 @@ __all__ = [
     "unfold_phi",
     "texture",
     "depolarization",
+    "DpMethods",
 ]
-__xr__ = ["xr_kdp_from_phidp"]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import numpy as np
@@ -265,21 +265,6 @@ def _fill_sweep(dat, kind="nan_to_num", fill_value=0.0):
         invalidx = np.where(invalid)[0]
         dat[beam, invalidx] = f(invalidx)
     return dat.reshape(shape)
-
-
-def xr_kdp_from_phidp(da, winlen=7, **kwargs):
-    dr = da.range.diff("range").median("range").values / 1000.0
-    print("range res [km]:", dr)
-    print("processing window [km]:", dr * winlen)
-    return xr.apply_ufunc(
-        kdp_from_phidp,
-        da,
-        input_core_dims=[["range"]],
-        output_core_dims=[["range"]],
-        dask="parallelized",
-        kwargs=dict(winlen=winlen, dr=dr, **kwargs),
-        dask_gufunc_kwargs=dict(allow_rechunk=True),
-    )
 
 
 def kdp_from_phidp(
@@ -575,6 +560,45 @@ def depolarization(zdr, rho):
     m = 2 * np.asanyarray(rho) * zdr**0.5
 
     return trafo.decibel((1 + zdr - m) / (1 + zdr + m))
+
+
+class DpMethods:
+    """wradlib xarray SubAccessor methods for DualPol."""
+
+    def __init__(self, xarray_obj):
+        self._obj = xarray_obj
+
+    def kdp_from_phidp(self, winlen=7, **kwargs):
+        """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
+
+        Parameter
+        ---------
+        winlen : int
+            window length
+
+        Keyword Arguments
+        -----------------
+        method : str
+            Defaults to 'lanczos_conv'. Can also take one of 'lanczos_dot', 'lstsq',
+            'cov', 'cov_nan', 'matrix_inv'.
+        skipna : bool
+            Defaults to True. Local Linear regression removing NaN values using
+            valid neighbors > min_periods
+        min_periods : int
+            Minimum number of valid values in moving window for linear regression.
+            Defaults to winlen // 2 + 1.
+        """
+        da = self._obj
+        dr = da.range.diff("range").median("range").values / 1000.0
+        return xr.apply_ufunc(
+            kdp_from_phidp,
+            da,
+            input_core_dims=[["range"]],
+            output_core_dims=[["range"]],
+            dask="parallelized",
+            kwargs=dict(winlen=winlen, dr=dr, **kwargs),
+            dask_gufunc_kwargs=dict(allow_rechunk=True),
+        )
 
 
 if __name__ == "__main__":

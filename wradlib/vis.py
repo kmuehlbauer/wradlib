@@ -15,6 +15,7 @@ Standard plotting and mapping procedures.
    {}
 """
 __all__ = [
+    "plot",
     "plot_ppi",
     "plot_ppi_crosshair",
     "plot_rhi",
@@ -24,12 +25,12 @@ __all__ = [
     "plot_max_plan_and_vert",
     "add_lines",
     "add_patches",
+    "VisMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
-__xr__ = ["xr_plot"]
-
 import collections
+import inspect
 import os.path
 import warnings
 
@@ -49,204 +50,6 @@ axisartist = util.import_optional("mpl_toolkits.axisartist")
 angle_helper = util.import_optional("mpl_toolkits.axisartist.angle_helper")
 osr = util.import_optional("osgeo.osr")
 cartopy = util.import_optional("cartopy")
-
-
-def xr_plot(
-    da,
-    ax=111,
-    fig=None,
-    proj=None,
-    func="pcolormesh",
-    cmap="viridis",
-    center=False,
-    add_colorbar=False,
-    add_labels=False,
-    **kwargs,
-):
-    """Plot Plan Position Indicator (PPI) or Range Height Indicator (RHI).
-
-    The implementation of this plot routine is in cartesian axes and does
-    all coordinate transforms using xarray machinery. This allows zooming
-    into the data as well as making it easier to plot additional data
-    (like gauge locations) without having to convert them to the radar's
-    polar coordinate system.
-
-    Using ``proj='cg'`` the plotting is done in a curvelinear grid axes.
-
-    Additional data can be plotted in polar coordinates or cartesian
-    coordinates depending which axes object is used.
-
-    ``**kwargs`` may be used to try to influence the
-    :func:`matplotlib.pyplot.pcolormesh`,
-    :func:`matplotlib.pyplot.contour`,
-    :func:`matplotlib.pyplot.contourf` and
-    :func:`wradlib.georef.polar.spherical_to_proj` routines under the hood.
-
-    Parameters
-    ----------
-    proj : :py:class:`cartopy.crs.CRS`, dict or None
-        cartopy CRS Coordinate Reference System describing projection
-        If this parameter is not None, ``site`` must be set properly.
-        Then the function will attempt to georeference the radar bins and
-        display the PPI in the coordinate system defined by the
-        projection string.
-    fig : :class:`matplotlib.figure.Figure`
-        If given, the PPI/RHI will be plotted into this figure object.
-        Axes are created as needed. If None, a new figure object will be
-        created or current figure will be used, depending on ``ax``.
-    ax : :class:`matplotlib.axes.Axes` or :class:`matplotlib.gridspec.SubplotSpec`
-        If matplotlib Axes object is given, the PPI will be plotted into
-        this axes object.
-        If matplotlib grid definition is given (nrows/ncols/plotnumber),
-        axis are created in the specified place.
-        Defaults to '111', only one subplot/axis.
-    func : str
-        Name of plotting function to be used under the hood.
-        Defaults to 'pcolormesh'. 'contour' and 'contourf' can be
-        selected too.
-    cmap : str
-        matplotlib colormap string
-
-    Returns
-    -------
-    pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
-        :class:`matplotlib:matplotlib.contour.QuadContourSet`
-        The result of the plotting function. Necessary, if you want to
-        add a colorbar to the plot.
-
-    Note
-    ----
-    If ``proj`` contains a curvelinear grid dict,
-    the ``cgax`` - curvelinear Axes (r-theta-grid) is returned.
-    ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
-    parasite axes object for plotting polar data can be derived like this::
-
-        caax = cgax.parasites[0]
-        paax = cgax.parasites[1]
-
-    The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
-    `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
-
-    Here are some limitations to normal Matplotlib Axes (see
-    `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
-
-    Examples
-    --------
-    See :ref:`/notebooks/visualisation/wradlib_plot_ppi_example.ipynb`,
-    and
-    :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
-    """
-    cg = False
-    caax = None
-    paax = None
-
-    # fix for correct zorder of data and grid
-    kwargs["zorder"] = kwargs.pop("zorder", 0)
-
-    sproj = proj
-
-    # handle curvelinear grid properties
-    if proj == "cg" or isinstance(proj, collections.abc.Mapping):
-        sproj = None
-        if da.sweep_mode == "azimuth_surveillance":
-            cg = {"rot": -450, "scale": -1}
-        else:
-            cg = {"rot": 0, "scale": 1}
-        if isinstance(proj, collections.abc.Mapping):
-            cg.update(proj)
-
-    if util.has_import(osr):
-        if isinstance(proj, osr.SpatialReference):
-            raise TypeError("WRADLIB: Currently GDAL OSR SRS are not supported")
-
-    if isinstance(ax, axes.Axes):
-        if cg:
-            try:
-                caax = ax.parasites[0]
-                paax = ax.parasites[1]
-            except AttributeError:
-                raise TypeError(
-                    "WRADLIB: If `proj='cg'` `ax` need to be of type"
-                    " `mpl_toolkits.axisartist.SubplotHost`"
-                )
-    else:
-        # axes object is given
-        if fig is None:
-            if ax == 111:
-                # create new figure if there is only one subplot
-                fig = pl.figure()
-            else:
-                # assume current figure
-                fig = pl.gcf()
-        if cg:
-            # create curvelinear axes
-            ax, caax, paax = create_cg(fig=fig, subplot=ax, **cg)
-            # this is in fact the outermost thick "ring"
-            rdiff = da.range[1] - da.range[0]
-            ax.axis["lon"] = ax.new_floating_axis(
-                1, (np.max(da.bins.values) + rdiff.values / 2.0)
-            )
-            ax.axis["lon"].major_ticklabels.set_visible(False)
-            # and also set tickmarklength to zero for better presentation
-            ax.axis["lon"].major_ticks.set_ticksize(0)
-        else:
-            ax = fig.add_subplot(ax, projection=sproj)
-
-    if cg:
-        plax = paax
-        infer_intervals = kwargs.pop("infer_intervals", False)
-        if func == "pcolormesh":
-            kwargs.update(dict(shading="auto"))
-        xp, yp = "rays", "bins"
-    else:
-        plax = ax
-        infer_intervals = kwargs.pop("infer_intervals", True)
-        if da.sweep_mode == "azimuth_surveillance":
-            xp, yp = "x", "y"
-        else:
-            xp, yp = "gr", "z"
-
-    # use cartopy, if available
-    if hasattr(plax, "projection") and util.has_import(cartopy):
-        map_trans = cartopy.crs.AzimuthalEquidistant(
-            central_longitude=da.longitude.values, central_latitude=da.latitude.values
-        )
-        kwargs.update({"transform": map_trans})
-
-    # claim xarray plot function and create plot
-    plotfunc = getattr(da.plot, func)
-    pm = plotfunc(
-        x=xp,
-        y=yp,
-        ax=plax,
-        cmap=cmap,
-        center=center,
-        add_colorbar=add_colorbar,
-        add_labels=add_labels,
-        infer_intervals=infer_intervals,
-        **kwargs,
-    )
-
-    # set cg grids and limits
-    if cg:
-        if da.sweep_mode == "azimuth_surveillance":
-            xlims = np.min(da.x), np.max(da.x)
-            ylims = np.min(da.y), np.max(da.y)
-        else:
-            xlims = np.min(da.gr), np.max(da.gr)
-            ylims = np.min(da.z), np.max(da.z)
-        ax.set_ylim(ylims)
-        ax.set_xlim(xlims)
-        ax.grid(True)
-        caax.grid(True)
-
-    if da.sweep_mode == "azimuth_surveillance":
-        ax.set_aspect("equal", adjustable="box")
-
-    # set ax as current
-    pl.sca(ax)
-
-    return pm
 
 
 def plot_ppi(
@@ -1322,6 +1125,230 @@ def add_patches(ax, patch_array, **kwargs):
     except ValueError:
         for patch in patch_array:
             add_patches(ax, patch, **kwargs)
+
+
+class VisMethods:
+    """wradlib xarray SubAccessor methods for visualization."""
+
+    def __init__(self, xarray_obj):
+        self._obj = xarray_obj
+
+    def plot(self,
+            ax=111,
+            fig=None,
+            proj=None,
+            func="pcolormesh",
+            cmap="viridis",
+            center=False,
+            add_colorbar=False,
+            add_labels=False,
+            **kwargs,
+    ):
+        """Plot Plan Position Indicator (PPI) or Range Height Indicator (RHI).
+
+        The implementation of this plot routine is in cartesian axes and does
+        all coordinate transforms using xarray machinery. This allows zooming
+        into the data as well as making it easier to plot additional data
+        (like gauge locations) without having to convert them to the radar's
+        polar coordinate system.
+
+        Using ``proj='cg'`` the plotting is done in a curvelinear grid axes.
+
+        Additional data can be plotted in polar coordinates or cartesian
+        coordinates depending which axes object is used.
+
+        ``**kwargs`` may be used to try to influence the
+        :func:`matplotlib.pyplot.pcolormesh`,
+        :func:`matplotlib.pyplot.contour`,
+        :func:`matplotlib.pyplot.contourf` and
+        :func:`wradlib.georef.polar.spherical_to_proj` routines under the hood.
+
+        Parameters
+        ----------
+        proj : :py:class:`cartopy.crs.CRS`, dict or None
+            cartopy CRS Coordinate Reference System describing projection
+            If this parameter is not None, ``site`` must be set properly.
+            Then the function will attempt to georeference the radar bins and
+            display the PPI in the coordinate system defined by the
+            projection string.
+        fig : :class:`matplotlib.figure.Figure`
+            If given, the PPI/RHI will be plotted into this figure object.
+            Axes are created as needed. If None, a new figure object will be
+            created or current figure will be used, depending on ``ax``.
+        ax : :class:`matplotlib.axes.Axes` or :class:`matplotlib.gridspec.SubplotSpec`
+            If matplotlib Axes object is given, the PPI will be plotted into
+            this axes object.
+            If matplotlib grid definition is given (nrows/ncols/plotnumber),
+            axis are created in the specified place.
+            Defaults to '111', only one subplot/axis.
+        func : str
+            Name of plotting function to be used under the hood.
+            Defaults to 'pcolormesh'. 'contour' and 'contourf' can be
+            selected too.
+        cmap : str
+            matplotlib colormap string
+
+        Returns
+        -------
+        pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
+            :class:`matplotlib:matplotlib.contour.QuadContourSet`
+            The result of the plotting function. Necessary, if you want to
+            add a colorbar to the plot.
+
+        Note
+        ----
+        If ``proj`` contains a curvelinear grid dict,
+        the ``cgax`` - curvelinear Axes (r-theta-grid) is returned.
+        ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
+        parasite axes object for plotting polar data can be derived like this::
+
+            caax = cgax.parasites[0]
+            paax = cgax.parasites[1]
+
+        The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
+        `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
+
+        Here are some limitations to normal Matplotlib Axes (see
+        `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
+
+        Examples
+        --------
+        See :ref:`/notebooks/visualisation/wradlib_plot_ppi_example.ipynb`,
+        and
+        :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
+        """
+        cg = False
+        caax = None
+        paax = None
+        da = self._obj
+
+        # fix for correct zorder of data and grid
+        kwargs["zorder"] = kwargs.pop("zorder", 0)
+
+        sproj = proj
+
+        # handle curvelinear grid properties
+        if proj == "cg" or isinstance(proj, collections.abc.Mapping):
+            sproj = None
+            if da.sweep_mode == "azimuth_surveillance":
+                cg = {"rot": -450, "scale": -1}
+            else:
+                cg = {"rot": 0, "scale": 1}
+            if isinstance(proj, collections.abc.Mapping):
+                cg.update(proj)
+
+        if util.has_import(osr):
+            if isinstance(proj, osr.SpatialReference):
+                raise TypeError("WRADLIB: Currently GDAL OSR SRS are not supported")
+
+        if isinstance(ax, axes.Axes):
+            if cg:
+                try:
+                    caax = ax.parasites[0]
+                    paax = ax.parasites[1]
+                except AttributeError:
+                    raise TypeError(
+                        "WRADLIB: If `proj='cg'` `ax` need to be of type"
+                        " `mpl_toolkits.axisartist.SubplotHost`"
+                    )
+        else:
+            # axes object is given
+            if fig is None:
+                if ax == 111:
+                    # create new figure if there is only one subplot
+                    fig = pl.figure()
+                else:
+                    # assume current figure
+                    fig = pl.gcf()
+            if cg:
+                # create curvelinear axes
+                ax, caax, paax = create_cg(fig=fig, subplot=ax, **cg)
+                # this is in fact the outermost thick "ring"
+                rdiff = da.range[1] - da.range[0]
+                ax.axis["lon"] = ax.new_floating_axis(
+                    1, (np.max(da.bins.values) + rdiff.values / 2.0)
+                )
+                ax.axis["lon"].major_ticklabels.set_visible(False)
+                # and also set tickmarklength to zero for better presentation
+                ax.axis["lon"].major_ticks.set_ticksize(0)
+            else:
+                ax = fig.add_subplot(ax, projection=sproj)
+
+        if cg:
+            plax = paax
+            infer_intervals = kwargs.pop("infer_intervals", False)
+            if func == "pcolormesh":
+                kwargs.update(dict(shading="auto"))
+            xp, yp = "rays", "bins"
+        else:
+            plax = ax
+            infer_intervals = kwargs.pop("infer_intervals", True)
+            if da.sweep_mode == "azimuth_surveillance":
+                xp, yp = "x", "y"
+            else:
+                xp, yp = "gr", "z"
+
+        # use cartopy, if available
+        if hasattr(plax, "projection") and util.has_import(cartopy):
+            map_trans = cartopy.crs.AzimuthalEquidistant(
+                central_longitude=da.longitude.values, central_latitude=da.latitude.values
+            )
+            kwargs.update({"transform": map_trans})
+
+        # claim xarray plot function and create plot
+        plotfunc = getattr(da.plot, func)
+        pm = plotfunc(
+            x=xp,
+            y=yp,
+            ax=plax,
+            cmap=cmap,
+            center=center,
+            add_colorbar=add_colorbar,
+            add_labels=add_labels,
+            infer_intervals=infer_intervals,
+            **kwargs,
+        )
+
+        # set cg grids and limits
+        if cg:
+            if da.sweep_mode == "azimuth_surveillance":
+                xlims = np.min(da.x), np.max(da.x)
+                ylims = np.min(da.y), np.max(da.y)
+            else:
+                xlims = np.min(da.gr), np.max(da.gr)
+                ylims = np.min(da.z), np.max(da.z)
+            ax.set_ylim(ylims)
+            ax.set_xlim(xlims)
+            ax.grid(True)
+            caax.grid(True)
+
+        if da.sweep_mode == "azimuth_surveillance":
+            ax.set_aspect("equal", adjustable="box")
+
+        # set ax as current
+        pl.sca(ax)
+
+        return pm
+
+    @util.docstring(plot)
+    def pcolormesh(self, *args, **kwargs):
+        kwargs.setdefault("func", "pcolormesh")
+        self.plot(*args, **kwargs)
+
+    @util.docstring(plot)
+    def contour(self, *args, **kwargs):
+        kwargs.setdefault("func", "contour")
+        self.plot(*args, **kwargs)
+
+    @util.docstring(plot)
+    def contourf(self, *args, **kwargs):
+        kwargs.setdefault("func", "contourf")
+        self.plot(*args, **kwargs)
+
+
+@util.docstring(VisMethods.plot)
+def plot(da, *args, **kwargs):
+    VisMethods(da).plot(*args, **kwargs)
 
 
 if __name__ == "__main__":

@@ -21,6 +21,7 @@ util
 verify
 vis
 vpr
+xarray
 zonalstats
 zr
 ```

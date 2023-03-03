@@ -33,6 +33,7 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 
 import contextlib
 import datetime as dt
+import inspect
 import importlib
 import os
 
@@ -1279,3 +1280,13 @@ def cross_section_ppi(
         merged["z"] = merged["z"].ffill("xyi")
 
         return merged
+
+
+def docstring(func):
+    """Apply docstring and signature to decorated function"""
+    def wrapper(decorated):
+        decorated.__doc__ = func.__doc__
+        decorated.__signature__ = inspect.signature(func)
+        return decorated
+    return wrapper
+

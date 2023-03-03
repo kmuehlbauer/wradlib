@@ -131,6 +131,22 @@ class TestPolarPlot:
     @requires_gdal
     def test_plot_ppi_xarray(self, prj_data):
         assert hasattr(prj_data.da_ppi.wrl, "rays")
+        vis.plot(prj_data.da_ppi)
+        vis.plot(prj_data.da_ppi, func="contour")
+        vis.plot(prj_data.da_ppi, func="contourf")
+        vis.plot(prj_data.da_ppi, func="pcolormesh")
+        vis.plot(prj_data.da_ppi, proj="cg")
+        vis.plot(prj_data.da_ppi, proj="cg", func="contour")
+        vis.plot(prj_data.da_ppi, proj="cg", func="contourf")
+        vis.plot(prj_data.da_ppi, proj="cg", func="pcolormesh")
+        fig = pl.figure()
+        ax = fig.add_subplot(111)
+        with pytest.raises(TypeError):
+            vis.plot(prj_data.da_ppi, proj={"rot": 0, "scale": 1}, func="pcolormesh", ax=ax)
+
+    @requires_gdal
+    def test_plot_ppi_xarray_accessor(self, prj_data):
+        assert hasattr(prj_data.da_ppi.wrl, "rays")
         prj_data.da_ppi.wrl.vis.plot()
         prj_data.da_ppi.wrl.vis.contour()
         prj_data.da_ppi.wrl.vis.contourf()
