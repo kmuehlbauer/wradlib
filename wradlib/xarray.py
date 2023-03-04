@@ -30,17 +30,16 @@ import wradlib
 
 
 @xr.register_dataarray_accessor("wrl")
+@xr.register_dataset_accessor("wrl")
 class WradlibDataArrayAccessor:
     """DataArray Accessor for wradlib module functions"""
 
-    __slots__ = ["_obj", "_dp", "_vis"]
+    __slots__ = ["_obj", "_dp", "_trafo", "_vis"]
 
     def __init__(self, xarray_obj):
         for slot in self.__slots__:
             setattr(self, slot, None)
         self._obj = xarray_obj
-        self._vis = wradlib.vis.VisMethods(self._obj)
-        self._dp = wradlib.dp.DpMethods(self._obj)
 
     def __getattr__(self, attr):
         return getattr(self._obj, attr)
@@ -51,12 +50,23 @@ class WradlibDataArrayAccessor:
     @property
     def vis(self):
         """SubAccessor for :class:`VisMethods`."""
+        if self._vis is None:
+            self._vis = wradlib.vis.VisMethods(self._obj)
         return self._vis
 
     @property
     def dp(self):
         """SubAccessor for :class:`DpMethods`."""
+        if self._dp is None:
+            self._dp = wradlib.dp.DpMethods(self._obj)
         return self._dp
+
+    @property
+    def trafo(self):
+        """SubAccessor for :class:`DpMethods`."""
+        if self._trafo is None:
+            self._trafo = wradlib.trafo.TrafoMethods(self._obj)
+        return self._trafo
 
 
 if __name__ == "__main__":

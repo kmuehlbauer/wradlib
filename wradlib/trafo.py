@@ -37,6 +37,8 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 
 import numpy as np
 
+from wradlib import util
+
 # CONSTANTS
 meters_per_mile = 1609.344
 meters_per_nautical_mile = 1852.0
@@ -476,6 +478,24 @@ def kts_to_si(vals):
 
     """
     return vals * meters_per_nautical_mile / 3600.0
+
+
+class TrafoMethods(util.XarrayMethods):
+    """wradlib xarray SubAccessor methods for DualPol."""
+
+    @util.docstring(decibel)
+    def decibel(self):
+        if not isinstance(self, TrafoMethods):
+            return self.pipe(decibel)
+        else:
+            return self._obj.pipe(decibel)
+
+    @util.docstring(idecibel)
+    def idecibel(self):
+        if not isinstance(self, TrafoMethods):
+            return self.pipe(idecibel)
+        else:
+            return self._obj.pipe(idecibel)
 
 
 if __name__ == "__main__":

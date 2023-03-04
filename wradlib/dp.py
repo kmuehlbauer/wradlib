@@ -56,9 +56,12 @@ __all__ = [
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
+from functools import singledispatch
+
 import numpy as np
 import xarray as xr
 from scipy import integrate, interpolate
+from xradar.model import sweep_vars_mapping
 
 from wradlib import trafo, util
 
@@ -267,6 +270,7 @@ def _fill_sweep(dat, kind="nan_to_num", fill_value=0.0):
     return dat.reshape(shape)
 
 
+@singledispatch
 def kdp_from_phidp(
     phidp, winlen=7, dr=1.0, method="lanczos_conv", skipna=True, **kwargs
 ):
@@ -562,43 +566,54 @@ def depolarization(zdr, rho):
     return trafo.decibel((1 + zdr - m) / (1 + zdr + m))
 
 
-class DpMethods:
+@kdp_from_phidp.register(xr.DataArray)
+# def _(da, winlen=7, **kwargs):
+def _kdp_from_phidp_xarray(da, winlen=7, **kwargs):
+    """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
+
+    Parameter
+    ---------
+    da : xarray.DatArray
+        DataArray containing differential phase
+    winlen : int
+        window length
+
+    Keyword Arguments
+    -----------------
+    method : str
+        Defaults to 'lanczos_conv'. Can also take one of 'lanczos_dot', 'lstsq',
+        'cov', 'cov_nan', 'matrix_inv'.
+    skipna : bool
+        Defaults to True. Local Linear regression removing NaN values using
+        valid neighbors > min_periods
+    min_periods : int
+        Minimum number of valid values in moving window for linear regression.
+        Defaults to winlen // 2 + 1.
+    """
+    dr = da.range.diff("range").median("range").values / 1000.0
+    out = xr.apply_ufunc(
+        kdp_from_phidp,
+        da,
+        input_core_dims=[["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        kwargs=dict(winlen=winlen, dr=dr, **kwargs),
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.attrs = sweep_vars_mapping["KDP"]
+    out.name = out.attrs["short_name"]
+    return out
+
+
+class DpMethods(util.XarrayMethods):
     """wradlib xarray SubAccessor methods for DualPol."""
 
-    def __init__(self, xarray_obj):
-        self._obj = xarray_obj
-
-    def kdp_from_phidp(self, winlen=7, **kwargs):
-        """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
-
-        Parameter
-        ---------
-        winlen : int
-            window length
-
-        Keyword Arguments
-        -----------------
-        method : str
-            Defaults to 'lanczos_conv'. Can also take one of 'lanczos_dot', 'lstsq',
-            'cov', 'cov_nan', 'matrix_inv'.
-        skipna : bool
-            Defaults to True. Local Linear regression removing NaN values using
-            valid neighbors > min_periods
-        min_periods : int
-            Minimum number of valid values in moving window for linear regression.
-            Defaults to winlen // 2 + 1.
-        """
-        da = self._obj
-        dr = da.range.diff("range").median("range").values / 1000.0
-        return xr.apply_ufunc(
-            kdp_from_phidp,
-            da,
-            input_core_dims=[["range"]],
-            output_core_dims=[["range"]],
-            dask="parallelized",
-            kwargs=dict(winlen=winlen, dr=dr, **kwargs),
-            dask_gufunc_kwargs=dict(allow_rechunk=True),
-        )
+    @util.docstring(_kdp_from_phidp_xarray)
+    def kdp_from_phidp(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return kdp_from_phidp(self, *args, **kwargs)
+        else:
+            return kdp_from_phidp(self._obj, *args, **kwargs)
 
 
 if __name__ == "__main__":

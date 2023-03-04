@@ -33,8 +33,8 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 
 import contextlib
 import datetime as dt
-import inspect
 import importlib
+import inspect
 import os
 
 import numpy as np
@@ -1284,9 +1284,61 @@ def cross_section_ppi(
 
 def docstring(func):
     """Apply docstring and signature to decorated function"""
+
     def wrapper(decorated):
         decorated.__doc__ = func.__doc__
         decorated.__signature__ = inspect.signature(func)
         return decorated
+
     return wrapper
 
+
+class XarrayMethods:
+    """BaseClass to bind xarray methods to wradlib SubAccessor
+
+    This wraps xarray.DataArray or xarray.Dataset objects and overrides
+    `__repr__`, `_repr_html_`, `__getitem__` and `__getattr__` of those.
+
+    Parameter
+    ---------
+    obj : xarray.Dataset | xarray.DataArray
+    """
+
+    def __init__(self, obj):
+        self._obj = obj
+
+    def __repr__(self):
+        name = self._obj.__class__.__name__
+        cname = self.__class__.__module__
+        search = f"xarray.{name}"
+        replace = f"{cname}(xarray.{name})"
+        out = self._obj.__repr__()
+        out = out.replace(search, replace)
+        return out
+
+    def _repr_html_(self):
+        name = self._obj.__class__.__name__
+        cname = self.__class__.__module__
+        search = f"xarray.{name}"
+        replace = f"{cname}(xarray.{name})"
+        out = self._obj._repr_html_()
+        out = out.replace(search, replace)
+        return out
+
+    def __getitem__(self, item):
+        if (
+            isinstance(self._obj, xr.DataArray)
+            or item not in self._obj.data_vars
+            or not self._obj[item].dims
+        ):
+            return self._obj[item]
+        return self.__class__(self._obj[item])
+
+    def __getattr__(self, item):
+        if (
+            isinstance(self._obj, xr.DataArray)
+            or item not in self._obj.data_vars
+            or not self._obj[item].dims
+        ):
+            return getattr(self._obj, item)
+        return self.__class__(getattr(self._obj, item))
