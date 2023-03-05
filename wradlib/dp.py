@@ -631,7 +631,7 @@ def _depolarization_xarray(ds, **kwargs):
     zdr = kwargs.pop("zdr", None)
     rho = kwargs.pop("rho", None)
     if zdr is None or rho is None:
-        raise(TypeError, "Both `zdr` and `rhp` kwargs need to be given.")
+        raise (TypeError, "Both `zdr` and `rhp` kwargs need to be given.")
     if isinstance(zdr, str):
         zdr = ds[zdr]
     if isinstance(rho, str):
@@ -817,6 +817,7 @@ class DpMethods(util.XarrayMethods):
             return unfold_phi(self, *args, **kwargs)
         else:
             return unfold_phi(self._obj, *args, **kwargs)
+
 
 if __name__ == "__main__":
     print("wradlib: Calling module <dp> as main...")

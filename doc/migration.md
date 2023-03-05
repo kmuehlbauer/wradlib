@@ -42,7 +42,7 @@ The xarray based radar readers for polar data have been moved to [xradar](xradar
 
 ### How can I read my data now?
 
-#### Single sweep 
+#### Single sweep
 
 ```python
 swp = xarray.open_dataset(filename, engine=engine, group=group)
@@ -58,7 +58,7 @@ swp = xarray.open_dataset(filename, engine=engine, group=group)
 
 `group` would be a string like `sweep_0` for first sweep, `sweep_1` for second sweep and so forth.
 
-The above command will return an `xarray.Dataset` which is aligned with the CfRadial2/FM301 standard. Please refer to the [xradar model](https://docs.openradarscience.org/projects/xradar/en/stable/datamodel.html). 
+The above command will return an `xarray.Dataset` which is aligned with the CfRadial2/FM301 standard. Please refer to the [xradar model](https://docs.openradarscience.org/projects/xradar/en/stable/datamodel.html).
 
 Please also refer to the [xarray.open_dataset](https://docs.xarray.dev/en/stable/generated/xarray.open_dataset.html) documentation.
 
@@ -78,7 +78,7 @@ The same way different metadata groups can be retrieved. Just require the wanted
 
 #### Single Volume
 
-{{wradlib}}'s `RadarVolume` is replaced by `datatree.DataTree`. 
+{{wradlib}}'s `RadarVolume` is replaced by `datatree.DataTree`.
 
 ```python
 vol = xradar.open_cfradial1_datatree(filename)
@@ -117,4 +117,3 @@ This is not yet available out of the box as dedicated functions (like `xarray.op
 ### Deprecations
 
 - `plot_ppi`/`plot_rhi` -> `wrl.georef.create_xarray_dataarray` and `wrl.vis.plot(da)` or xarray accessor `da.wrl.vis.plot()`
-
