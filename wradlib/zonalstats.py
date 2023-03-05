@@ -80,13 +80,6 @@ if has_import(gdal):
 isWindows = os.name == "nt"
 
 
-class DataSource(io.VectorSource):
-    """DataSource class for handling ogr/gdal vector data
-
-    Minimal wrapper around wradlib.io.VectorSource for backwards compatibility.
-    """
-
-
 class ZonalDataBase:
     """Base class for managing 2-dimensional zonal data.
 

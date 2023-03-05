@@ -6,9 +6,9 @@
 wradlib Xarray Accessors
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
-Since version 2.0 wradlib makes increasing use of xarray Accessors
-Module xarray takes care of accessing wradlib functionality from
-xarray DataArrays and Datasets
+Since version 2.0 wradlib makes increasing use of xarray Accessors.
+Module `xarray` takes care of accessing wradlib functionality from
+xarray DataArrays and Datasets.
 
 .. currentmodule:: wradlib.xarray
 

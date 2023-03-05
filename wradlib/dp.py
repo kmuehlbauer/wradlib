@@ -66,6 +66,7 @@ from xradar.model import sweep_vars_mapping
 from wradlib import trafo, util
 
 
+@singledispatch
 def process_raw_phidp_vulpiani(
     phidp, dr, ndespeckle=5, winlen=7, niter=2, copy=False, **kwargs
 ):
@@ -178,6 +179,7 @@ def process_raw_phidp_vulpiani(
     return phidp, kdp
 
 
+@singledispatch
 def unfold_phi_vulpiani(phidp, kdp, th=-20, winlen=7):
     """Alternative phase unfolding which completely relies on :math:`K_{DP}`.
 
@@ -366,6 +368,7 @@ def kdp_from_phidp(
     )
 
 
+@singledispatch
 def unfold_phi(phidp, rho, width=5, copy=False):
     """Unfolds differential phase by adjusting values that exceeded maximum \
     ambiguous range.
@@ -421,6 +424,7 @@ def unfold_phi(phidp, rho, width=5, copy=False):
     return phidp.reshape(shape)
 
 
+@singledispatch
 def unfold_phi_naive(phidp, rho, width=5, copy=False):
     """Unfolds differential phase by adjusting values that exceeded maximum \
     ambiguous range.
@@ -488,6 +492,7 @@ def unfold_phi_naive(phidp, rho, width=5, copy=False):
     return phidp
 
 
+@singledispatch
 def texture(data):
     """Compute the texture of data.
 
@@ -539,6 +544,7 @@ def texture(data):
     return rmsd
 
 
+@singledispatch
 def depolarization(zdr, rho):
     """Compute the depolarization ration.
 
@@ -566,8 +572,133 @@ def depolarization(zdr, rho):
     return trafo.decibel((1 + zdr - m) / (1 + zdr + m))
 
 
+@unfold_phi.register(xr.Dataset)
+def _unfold_phi_xarray(ds, **kwargs):
+    phidp = kwargs.pop("phidp", None)
+    rho = kwargs.pop("rho", None)
+    if phidp is None or rho is None:
+        raise (TypeError, "Both `phidp` and `rho` kwargs need to be given.")
+    if isinstance(phidp, str):
+        phidp = ds[phidp]
+    if isinstance(rho, str):
+        rho = ds[rho]
+    assert isinstance(phidp, xr.DataArray)
+    assert isinstance(rho, xr.DataArray)
+    out = xr.apply_ufunc(
+        unfold_phi,
+        phidp,
+        rho,
+        input_core_dims=[["range"], ["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.attrs = phidp.attrs
+    out.name = phidp.name
+    return out
+
+
+@unfold_phi_naive.register(xr.Dataset)
+def _unfold_phi_naive_xarray(ds, **kwargs):
+    phidp = kwargs.pop("phidp", None)
+    rho = kwargs.pop("rho", None)
+    if phidp is None or rho is None:
+        raise (TypeError, "Both `phidp` and `rho` kwargs need to be given.")
+    if isinstance(phidp, str):
+        phidp = ds[phidp]
+    if isinstance(rho, str):
+        rho = ds[rho]
+    assert isinstance(phidp, xr.DataArray)
+    assert isinstance(rho, xr.DataArray)
+    out = xr.apply_ufunc(
+        unfold_phi_naive,
+        phidp,
+        rho,
+        input_core_dims=[["range"], ["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.attrs = phidp.attrs
+    out.name = phidp.name
+    return out
+
+
+@depolarization.register(xr.Dataset)
+def _depolarization_xarray(ds, **kwargs):
+    zdr = kwargs.pop("zdr", None)
+    rho = kwargs.pop("rho", None)
+    if zdr is None or rho is None:
+        raise(TypeError, "Both `zdr` and `rhp` kwargs need to be given.")
+    if isinstance(zdr, str):
+        zdr = ds[zdr]
+    if isinstance(rho, str):
+        rho = ds[rho]
+    assert isinstance(zdr, xr.DataArray)
+    assert isinstance(rho, xr.DataArray)
+    out = xr.apply_ufunc(
+        depolarization,
+        zdr,
+        rho,
+        input_core_dims=[["range"], ["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    attrs = {
+        "standard_name": "depolarization_ratio",
+        "long_name": "Depolarization Ratio",
+        "units": "unitless",
+    }
+    out.attrs = attrs
+    out.name = "DP"
+    return out
+
+
+@process_raw_phidp_vulpiani.register(xr.DataArray)
+def _process_raw_phidp_vulpiani_xarray(da, winlen=7, **kwargs):
+    """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
+
+    Parameter
+    ---------
+    da : xarray.DatArray
+        DataArray containing differential phase
+    winlen : int
+        window length
+
+    Keyword Arguments
+    -----------------
+    method : str
+        Defaults to 'lanczos_conv'. Can also take one of 'lanczos_dot', 'lstsq',
+        'cov', 'cov_nan', 'matrix_inv'.
+    skipna : bool
+        Defaults to True. Local Linear regression removing NaN values using
+        valid neighbors > min_periods
+    min_periods : int
+        Minimum number of valid values in moving window for linear regression.
+        Defaults to winlen // 2 + 1.
+    """
+    dr = da.range.diff("range").median("range").values / 1000.0
+    phidp, kdp = xr.apply_ufunc(
+        process_raw_phidp_vulpiani,
+        da,
+        dr,
+        input_core_dims=[["range"], [None]],
+        output_core_dims=[["range"], ["range"]],
+        dask="parallelized",
+        kwargs=dict(winlen=winlen, **kwargs),
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    phidp.attrs = sweep_vars_mapping["PHIDP"]
+    phidp.name = phidp.attrs["short_name"]
+    kdp.attrs = sweep_vars_mapping["KDP"]
+    kdp.name = kdp.attrs["short_name"]
+    return phidp, kdp
+
+
 @kdp_from_phidp.register(xr.DataArray)
-# def _(da, winlen=7, **kwargs):
 def _kdp_from_phidp_xarray(da, winlen=7, **kwargs):
     """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
 
@@ -605,6 +736,43 @@ def _kdp_from_phidp_xarray(da, winlen=7, **kwargs):
     return out
 
 
+@texture.register(xr.DataArray)
+def _texture_xarray(da):
+    """Compute the texture of data.
+
+    Compute the texture of the data by comparing values with a 3x3 neighborhood
+    (based on :cite:`Gourley2007`). NaN values in the original array have
+    NaN textures.
+
+    Parameters
+    ----------
+    da : xarray.DatArray
+        DataArray
+
+    Returns
+    ------
+    texture : xarray.DatArray
+        DataArray
+    """
+    out = xr.apply_ufunc(
+        texture,
+        da,
+        input_core_dims=[["range"]],
+        output_core_dims=[["range"]],
+        dask="parallelized",
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    attrs = da.attrs
+    standard_name = attrs["standard_name"].split("_")
+    standard_name.append("texture")
+    attrs["standard_name"] = "_".join(standard_name)
+    attrs["long_name"] = "Texture of " + attrs["long_name"]
+    attrs["units"] = "unitless"
+    out.attrs = attrs
+    out.name = da.name + "_TEXTURE"
+    return out
+
+
 class DpMethods(util.XarrayMethods):
     """wradlib xarray SubAccessor methods for DualPol."""
 
@@ -615,6 +783,40 @@ class DpMethods(util.XarrayMethods):
         else:
             return kdp_from_phidp(self._obj, *args, **kwargs)
 
+    @util.docstring(_texture_xarray)
+    def texture(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return texture(self, *args, **kwargs)
+        else:
+            return texture(self._obj, *args, **kwargs)
+
+    @util.docstring(_process_raw_phidp_vulpiani_xarray)
+    def process_raw_phidp_vulpiani(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return process_raw_phidp_vulpiani(self, *args, **kwargs)
+        else:
+            return process_raw_phidp_vulpiani(self._obj, *args, **kwargs)
+
+    @util.docstring(_depolarization_xarray)
+    def depolarization(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return depolarization(self, *args, **kwargs)
+        else:
+            return depolarization(self._obj, *args, **kwargs)
+
+    @util.docstring(_unfold_phi_naive_xarray)
+    def unfold_phi_naive(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return unfold_phi_naive(self, *args, **kwargs)
+        else:
+            return unfold_phi_naive(self._obj, *args, **kwargs)
+
+    @util.docstring(_unfold_phi_xarray)
+    def unfold_phi(self, *args, **kwargs):
+        if not isinstance(self, DpMethods):
+            return unfold_phi(self, *args, **kwargs)
+        else:
+            return unfold_phi(self._obj, *args, **kwargs)
 
 if __name__ == "__main__":
     print("wradlib: Calling module <dp> as main...")
