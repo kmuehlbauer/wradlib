@@ -49,7 +49,7 @@ class TestTransformation:
         assert np.allclose(trafo.si_to_mph(self.speedsi), self.speedmph)
 
     def test_si_to_kts(self):
-        assert np.allclose(trafo.si_2_kts(self.speedsi), self.speedkts)
+        assert np.allclose(trafo.si_to_kts(self.speedsi), self.speedkts)
 
     def test_kmh_to_si(self):
         assert np.allclose(trafo.kmh_to_si(self.speedkmh), self.speedsi)

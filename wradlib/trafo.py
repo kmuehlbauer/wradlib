@@ -26,7 +26,7 @@ __all__ = [
     "kdp_to_r",
     "si_to_kmh",
     "si_to_mph",
-    "si_2_kts",
+    "si_to_kts",
     "kmh_to_si",
     "mph_to_si",
     "kts_to_si",
@@ -372,7 +372,7 @@ def si_to_mph(vals):
     return vals * 3600.0 / meters_per_mile
 
 
-def si_2_kts(vals):
+def si_to_kts(vals):
     """Conversion from SI wind speed units to knots
 
     Note
@@ -391,8 +391,8 @@ def si_2_kts(vals):
 
     Examples
     --------
-    >>> from wradlib.trafo import si_2_kts
-    >>> print(np.round(si_2_kts(1.), 3))
+    >>> from wradlib.trafo import si_to_kts
+    >>> print(np.round(si_to_kts(1.), 3))
     1.944
 
     """
