@@ -24,12 +24,16 @@ __all__ = [
     "get_radar_projection",
     "get_earth_projection",
     "get_extent",
+    "ProjectionMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
-import numpy as np
+from functools import singledispatch
 
-from wradlib.util import import_optional
+import numpy as np
+from xarray import DataArray, Dataset
+
+from wradlib.util import docstring, import_optional
 
 gdal = import_optional("osgeo.gdal")
 ogr = import_optional("osgeo.ogr")
@@ -386,6 +390,7 @@ def wkt_to_osr(wkt=None):
     return proj
 
 
+@singledispatch
 def get_earth_radius(latitude, sr=None):
     """Get the radius of the Earth (in km) for a given Spheroid model (sr) at \
     a given position.
@@ -408,6 +413,49 @@ def get_earth_radius(latitude, sr=None):
         earth radius in meter
 
     """
+    if sr is None:
+        sr = get_default_projection()
+    radius_e = sr.GetSemiMajor()
+    radius_p = sr.GetSemiMinor()
+    latitude = np.radians(latitude)
+    radius = np.sqrt(
+        (
+            np.power(radius_e, 4) * np.power(np.cos(latitude), 2)
+            + np.power(radius_p, 4) * np.power(np.sin(latitude), 2)
+        )
+        / (
+            np.power(radius_e, 2) * np.power(np.cos(latitude), 2)
+            + np.power(radius_p, 2) * np.power(np.sin(latitude), 2)
+        )
+    )
+    return radius
+
+
+@get_earth_radius.register(DataArray)
+@get_earth_radius.register(Dataset)
+def _get_earth_radius_xarray(ds, sr=None):
+    """Get the radius of the Earth (in km) for a given Spheroid model (sr) at \
+    a given position.
+
+    .. math::
+
+        R^2 = \\frac{a^4 \\cos(f)^2 + b^4 \\sin(f)^2}
+        {a^2 \\cos(f)^2 + b^2 \\sin(f)^2}
+
+    Parameters
+    ----------
+    sr : :py:class:`gdal:osgeo.osr.SpatialReference`
+        spatial reference
+    latitude : float
+        geodetic latitude in degrees
+
+    Returns
+    -------
+    radius : float
+        earth radius in meter
+
+    """
+    latitude = ds.latitude.values
     if sr is None:
         sr = get_default_projection()
     radius_e = sr.GetSemiMajor()
@@ -505,3 +553,14 @@ def get_extent(coords):
     ymax = coords[..., 1].max()
 
     return xmin, xmax, ymin, ymax
+
+
+class ProjectionMethods:
+    """wradlib xarray SubAccessor methods for Georef Projection Methods."""
+
+    @docstring(_get_earth_radius_xarray)
+    def get_earth_radius(self, *args, **kwargs):
+        if not isinstance(self, ProjectionMethods):
+            return get_earth_radius(self, *args, **kwargs)
+        else:
+            return get_earth_radius(self._obj, *args, **kwargs)

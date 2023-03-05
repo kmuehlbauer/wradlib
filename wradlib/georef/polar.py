@@ -21,6 +21,7 @@ __all__ = [
     "centroid_to_polyvert",
     "sweep_centroids",
     "maximum_intensity_projection",
+    "PolarMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 __doctest_requires__ = {"spherical*": ["osgeo"]}
@@ -727,3 +728,9 @@ def maximum_intensity_projection(
     mip[mip == np.inf] = np.nan
 
     return xs, ys, mip
+
+
+class PolarMethods:
+    """wradlib xarray SubAccessor methods for Georef Polar Methods."""
+
+    pass

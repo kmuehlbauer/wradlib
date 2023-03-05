@@ -34,7 +34,7 @@ import wradlib
 class WradlibDataArrayAccessor:
     """DataArray Accessor for wradlib module functions"""
 
-    __slots__ = ["_obj", "_dp", "_trafo", "_vis"]
+    __slots__ = ["_obj", "_dp", "_georef", "_trafo", "_vis"]
 
     def __init__(self, xarray_obj):
         for slot in self.__slots__:
@@ -60,6 +60,13 @@ class WradlibDataArrayAccessor:
         if self._dp is None:
             self._dp = wradlib.dp.DpMethods(self._obj)
         return self._dp
+
+    @property
+    def georef(self):
+        """SubAccessor for :class:`DpMethods`."""
+        if self._georef is None:
+            self._georef = wradlib.georef.GeorefMethods(self._obj)
+        return self._georef
 
     @property
     def trafo(self):
