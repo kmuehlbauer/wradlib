@@ -19,7 +19,6 @@ Georeferencing
 .. automodule:: wradlib.georef.vector
 .. automodule:: wradlib.georef.xarray
 """
-
 from .misc import *
 from .polar import *
 from .projection import *
@@ -28,5 +27,19 @@ from .rect import *
 from .satellite import *
 from .vector import *
 from .xarray import *
+
+from wradlib import util
+
+
+class GeorefMethods(util.XarrayMethods, MiscMethods, PolarMethods, ProjectionMethods):
+    """wradlib xarray SubAccessor methods for DualPol."""
+
+    @util.docstring(georeference_dataset)
+    def georeference(self, *args, **kwargs):
+        if not isinstance(self, GeorefMethods):
+            return georeference_dataset(self, *args, **kwargs)
+        else:
+            return georeference_dataset(self._obj, *args, **kwargs)
+
 
 __all__ = [s for s in dir() if not s.startswith("_")]
