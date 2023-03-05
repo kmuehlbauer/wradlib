@@ -142,7 +142,9 @@ class TestPolarPlot:
         fig = pl.figure()
         ax = fig.add_subplot(111)
         with pytest.raises(TypeError):
-            vis.plot(prj_data.da_ppi, proj={"rot": 0, "scale": 1}, func="pcolormesh", ax=ax)
+            vis.plot(
+                prj_data.da_ppi, proj={"rot": 0, "scale": 1}, func="pcolormesh", ax=ax
+            )
 
     @requires_gdal
     def test_plot_ppi_xarray_accessor(self, prj_data):
