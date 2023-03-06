@@ -1501,24 +1501,24 @@ class VisMethods(util.XarrayMethods):
     @util.docstring(_plot_xarray)
     def plot(self, *args, **kwargs):
         if not isinstance(self, VisMethods):
-            plot(self, *args, **kwargs)
+            return plot(self, *args, **kwargs)
         else:
-            plot(self._obj, *args, **kwargs)
+            return plot(self._obj, *args, **kwargs)
 
     @util.docstring(_plot_xarray)
     def pcolormesh(self, *args, **kwargs):
         kwargs.setdefault("func", "pcolormesh")
-        self.plot(*args, **kwargs)
+        return self.plot(*args, **kwargs)
 
     @util.docstring(_plot_xarray)
     def contour(self, *args, **kwargs):
         kwargs.setdefault("func", "contour")
-        self.plot(*args, **kwargs)
+        return self.plot(*args, **kwargs)
 
     @util.docstring(_plot_xarray)
     def contourf(self, *args, **kwargs):
         kwargs.setdefault("func", "contourf")
-        self.plot(*args, **kwargs)
+        return self.plot(*args, **kwargs)
 
 
 if __name__ == "__main__":
