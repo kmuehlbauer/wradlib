@@ -23,8 +23,11 @@ __all__ = [
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
+from functools import singledispatch
+
 import numpy as np
 from scipy import ndimage
+from xarray import DataArray, apply_ufunc
 
 from wradlib import dp, util
 
@@ -145,6 +148,7 @@ def filter_gabella_b(img, thrs=0.0):
     return result
 
 
+@singledispatch
 def filter_gabella(
     img,
     wsize=5,
@@ -213,6 +217,22 @@ def filter_gabella(
     return clutter1 | clutter2
 
 
+@filter_gabella.register(DataArray)
+def _filter_gabella_xarray(obj, **kwargs):
+    out = apply_ufunc(
+        filter_gabella,
+        obj,
+        input_core_dims=[["azimuth", "range"]],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "filter_gabella"
+    return out
+
+
+@singledispatch
 def histo_cut(prec_accum, upper_frequency=0.01, lower_frequency=0.01):
     """Histogram based clutter identification.
 
@@ -313,6 +333,21 @@ def histo_cut(prec_accum, upper_frequency=0.01, lower_frequency=0.01):
     mask[prec_accum < lower_bound] = 2
 
     return mask
+
+
+@histo_cut.register(DataArray)
+def _histo_cut_xarray(obj, **kwargs):
+    out = apply_ufunc(
+        histo_cut,
+        obj,
+        input_core_dims=[["azimuth", "range"]],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "histo_cut"
+    return out
 
 
 def classify_echo_fuzzy(dat, weights=None, trpz=None, thresh=0.5):
@@ -669,6 +704,24 @@ def filter_window_distance(img, rscale, fsize=1500, tr1=7):
     count -= 1
     similar = similar / count
     return similar
+
+
+class ClutterMethods(util.XarrayMethods):
+    """wradlib xarray SubAccessor methods for DualPol."""
+
+    @util.docstring(_filter_gabella_xarray)
+    def filter_gabella(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return filter_gabella(self, *args, **kwargs)
+        else:
+            return filter_gabella(self._obj, *args, **kwargs)
+
+    @util.docstring(_histo_cut_xarray)
+    def histo_cut(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return histo_cut(self, *args, **kwargs)
+        else:
+            return histo_cut(self._obj, *args, **kwargs)
 
 
 if __name__ == "__main__":
