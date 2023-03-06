@@ -111,6 +111,7 @@ This is not yet available out of the box as dedicated functions (like `xarray.op
 
 - `wrl.dp.linear_despeckle` -> `wrl.util.despeckle`
 - `zonalstats.DataSource` -> `wrl.io.VectorSource`
+- `wrl.georef.xarray.georeference_dataset` -> `wrl.georef.polar.georeference`
 
 ## Visualization
 

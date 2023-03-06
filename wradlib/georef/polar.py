@@ -14,6 +14,7 @@ Polar Grid Functions
    {}
 """
 __all__ = [
+    "georeference",
     "spherical_to_xyz",
     "spherical_to_proj",
     "spherical_to_polyvert",
@@ -27,13 +28,18 @@ __doc__ = __doc__.format("\n   ".join(__all__))
 __doctest_requires__ = {"spherical*": ["osgeo"]}
 
 import warnings
+from functools import singledispatch
 
 import numpy as np
+from xarray import Dataset, apply_ufunc
 
 from wradlib.georef import misc, projection
-from wradlib.util import has_import, import_optional
+from wradlib.util import docstring, has_import, import_optional
+
+osr = import_optional("osgeo.osr")
 
 
+@singledispatch
 def spherical_to_xyz(
     r, phi, theta, sitecoords, re=None, ke=4.0 / 3.0, squeeze=False, strict_dims=False
 ):
@@ -158,6 +164,39 @@ def spherical_to_xyz(
     return xyz, rad
 
 
+@spherical_to_xyz.register(Dataset)
+def _spherical_to_xyz_xarray(obj, **kwargs):
+    r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
+        azimuth=obj.azimuth
+    )
+    phi = obj.azimuth.expand_dims(dim={"range": len(obj.range)}, axis=-1).assign_coords(
+        range=obj.range
+    )
+    theta = obj.elevation
+    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    kwargs.setdefault("squeeze", True)
+    out, proj = apply_ufunc(
+        spherical_to_xyz,
+        r,
+        phi,
+        theta,
+        sitecoords,
+        input_core_dims=[
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+            ["azimuth"],
+            [None],
+        ],
+        output_core_dims=[["azimuth", "range", "xyz"], []],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "spherical_to_xyz"
+    return out, proj
+
+
+@singledispatch
 def spherical_to_proj(r, phi, theta, sitecoords, proj=None, re=None, ke=4.0 / 3.0):
     """Transforms spherical coordinates (r, phi, theta) to projected
     coordinates centered at sitecoords in given projection.
@@ -234,6 +273,38 @@ Georeferencing-and-Projection`.
     return coords
 
 
+@spherical_to_proj.register(Dataset)
+def _spherical_to_proj_xarray(obj, **kwargs):
+    r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
+        azimuth=obj.azimuth
+    )
+    phi = obj.azimuth.expand_dims(dim={"range": len(obj.range)}, axis=-1).assign_coords(
+        range=obj.range
+    )
+    theta = obj.elevation
+    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    out = apply_ufunc(
+        spherical_to_proj,
+        r,
+        phi,
+        theta,
+        sitecoords,
+        input_core_dims=[
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+            ["azimuth"],
+            [None],
+        ],
+        output_core_dims=[["azimuth", "range", "xyz"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    # out.attrs = get_range_attrs()
+    out.name = "spherical_to_proj"
+    return out
+
+
 def centroid_to_polyvert(centroid, delta):
     """Calculates the 2-D Polygon vertices necessary to form a rectangular
     polygon around the centroid's coordinates.
@@ -299,6 +370,7 @@ def centroid_to_polyvert(centroid, delta):
     return np.asanyarray(centroid)[..., None, :] + d * np.asanyarray(delta)
 
 
+@singledispatch
 def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
     """
     Generate 3-D polygon vertices directly from spherical coordinates
@@ -397,6 +469,37 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
         return vertices
 
 
+@spherical_to_polyvert.register(Dataset)
+def _spherical_to_polyvert_xarray(obj, **kwargs):
+    # r, phi, theta, sitecoords, proj = None
+    rdiff = obj.range.diff("range").median() / 2.0
+    r = obj.range + rdiff
+    phi = obj.azimuth
+    theta = obj.elevation.median("azimuth")
+    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    output_core_dims = [["bins", "vert", "xy"]]
+    if kwargs.get("proj", None) is None:
+        output_core_dims.append([])
+    out = apply_ufunc(
+        spherical_to_polyvert,
+        r,
+        phi,
+        theta.values,
+        sitecoords,
+        input_core_dims=[["range"], ["azimuth"], [None], [None]],
+        output_core_dims=output_core_dims,
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    if kwargs.get("proj", None) is None:
+        out[0].name = "spherical_to_polyvert"
+    else:
+        out.name = "spherical_to_polyvert"
+    return out
+
+
+@singledispatch
 def spherical_to_centroids(r, phi, theta, sitecoords, proj=None):
     """
     Generate 3-D centroids of the radar bins from the sperical
@@ -459,6 +562,35 @@ def spherical_to_centroids(r, phi, theta, sitecoords, proj=None):
         return projection.reproject(
             coords, projection_source=rad, projection_target=proj
         )
+
+
+@spherical_to_centroids.register(Dataset)
+def _spherical_to_centroids_xarray(obj, **kwargs):
+    rdiff = obj.range.diff("range").median() / 2.0
+    r = obj.range + rdiff
+    phi = obj.azimuth
+    theta = obj.elevation.median("azimuth")
+    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    output_core_dims = [["azimuth", "range", "xyz"]]
+    if kwargs.get("proj", None) is None:
+        output_core_dims.append([])
+    out = apply_ufunc(
+        spherical_to_centroids,
+        r,
+        phi,
+        theta.values,
+        sitecoords,
+        input_core_dims=[["range"], ["azimuth"], [None], [None]],
+        output_core_dims=output_core_dims,
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    if kwargs.get("proj", None) is None:
+        out[0].name = "spherical_to_centroids"
+    else:
+        out.name = "spherical_to_centroids"
+    return out
 
 
 def _check_polar_coords(r, az):
@@ -730,7 +862,142 @@ def maximum_intensity_projection(
     return xs, ys, mip
 
 
+def georeference(obj, **kwargs):
+    """Georeference Dataset/DataArray.
+
+        .. versionadded:: 1.5
+
+    This function adds georeference data to xarray Dataset/DataArray `obj`.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset` or :py:class:`xarray:xarray.DataArray`
+
+    Keyword Arguments
+    -----------------
+    proj : :py:class:`gdal:osgeo.osr.SpatialReference`, :py:class:`cartopy.crs.CRS` or None
+        If GDAL OSR SRS, output is in this projection, else AEQD.
+    re : float
+        earth's radius [m]
+    ke : float
+        adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths.
+
+    Returns
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset` or :py:class:`xarray:xarray.DataArray`
+    """
+    proj = kwargs.pop("proj", "None")
+    re = kwargs.pop("re", None)
+    ke = kwargs.pop("ke", 4.0 / 3.0)
+
+    # adding xyz aeqd-coordinates
+    site = (
+        obj.coords["longitude"].values,
+        obj.coords["latitude"].values,
+        obj.coords["altitude"].values,
+    )
+
+    if site == (0.0, 0.0, 0.0):
+        re = 6378137.0
+
+    # create meshgrid to overcome dimension problem with spherical_to_xyz
+    r, az = np.meshgrid(obj["range"], obj["azimuth"])
+
+    # GDAL OSR, convert to this proj
+    if has_import(osr) and isinstance(proj, osr.SpatialReference):
+        xyz = spherical_to_proj(r, az, obj["elevation"], site, proj=proj, re=re, ke=ke)
+    # other proj, convert to aeqd
+    elif proj:
+        xyz, dst_proj = spherical_to_xyz(
+            r, az, obj["elevation"], site, re=re, ke=ke, squeeze=True
+        )
+    # proj, convert to aeqd and add offset
+    else:
+        xyz, dst_proj = spherical_to_xyz(
+            r, az, obj["elevation"], site, re=re, ke=ke, squeeze=True
+        )
+        xyz += np.array(site).T
+
+    # calculate center point
+    # use first range bins
+    ax = tuple(range(xyz.ndim - 2))
+    center = np.mean(xyz[..., 0, :], axis=ax)
+
+    # calculate ground range
+    gr = np.sqrt((xyz[..., 0] - center[0]) ** 2 + (xyz[..., 1] - center[1]) ** 2)
+
+    # dimension handling
+    dim0 = obj["azimuth"].dims[-1]
+    if obj["elevation"].dims:
+        dimlist = list(obj["elevation"].dims)
+    else:
+        dimlist = list(obj["azimuth"].dims)
+
+    # xyz is an array of cartesian coordinates for every spherical coordinate,
+    # so the possible dimensions are: elevation, azimuth, range, 3.
+    # For 2d, it either has (elevation, range, 3) or (azimuth, range, 3) dimensions.
+    # For 3d, the only option is the full (elevation, azimuth, range, 3) dimensions.
+    # Thus, adding the following two lines for the 3d case should not break other functionalities,
+    # and there should not be a case with more than 3 dimensions
+    if xyz.ndim > 3:
+        dimlist += ["azimuth"]
+
+    dimlist += ["range"]
+
+    # add xyz, ground range coordinates
+    obj.coords["x"] = (dimlist, xyz[..., 0])
+    obj.coords["y"] = (dimlist, xyz[..., 1])
+    obj.coords["z"] = (dimlist, xyz[..., 2])
+    obj.coords["gr"] = (dimlist, gr)
+
+    # adding rays, bins coordinates
+    if obj.sweep_mode == "azimuth_surveillance":
+        bins, rays = np.meshgrid(obj["range"], obj["azimuth"], indexing="xy")
+    else:
+        bins, rays = np.meshgrid(obj["range"], obj["elevation"], indexing="xy")
+    obj.coords["rays"] = ([dim0, "range"], rays)
+    obj.coords["bins"] = ([dim0, "range"], bins)
+
+    return obj
+
+
 class PolarMethods:
     """wradlib xarray SubAccessor methods for Georef Polar Methods."""
 
-    pass
+    @docstring(georeference)
+    def georeference(self, *args, **kwargs):
+        if not isinstance(self, PolarMethods):
+            return georeference(self, *args, **kwargs)
+        else:
+            return georeference(self._obj, *args, **kwargs)
+
+    @docstring(_spherical_to_xyz_xarray)
+    def spherical_to_xyz(self, *args, **kwargs):
+        if not isinstance(self, PolarMethods):
+            return spherical_to_xyz(self, *args, **kwargs)
+        else:
+            return spherical_to_xyz(self._obj, *args, **kwargs)
+
+    @docstring(_spherical_to_proj_xarray)
+    def spherical_to_proj(self, *args, **kwargs):
+        if not isinstance(self, PolarMethods):
+            return spherical_to_proj(self, *args, **kwargs)
+        else:
+            return spherical_to_proj(self._obj, *args, **kwargs)
+
+    @docstring(_spherical_to_polyvert_xarray)
+    def spherical_to_polyvert(self, *args, **kwargs):
+        if not isinstance(self, PolarMethods):
+            return spherical_to_polyvert(self, *args, **kwargs)
+        else:
+            return spherical_to_polyvert(self._obj, *args, **kwargs)
+
+    @docstring(_spherical_to_centroids_xarray)
+    def spherical_to_centroids(self, *args, **kwargs):
+        if not isinstance(self, PolarMethods):
+            return spherical_to_centroids(self, *args, **kwargs)
+        else:
+            return spherical_to_centroids(self._obj, *args, **kwargs)

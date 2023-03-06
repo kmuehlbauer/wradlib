@@ -229,7 +229,7 @@ def plot_ppi(
         **kw_spherical,
     )
 
-    da = georef.georeference_dataset(da, proj=proj)
+    da = georef.georeference(da, proj=proj)
 
     if util.has_import(osr):
         # fallback to proj=None for GDAL OSR
@@ -558,7 +558,7 @@ def plot_rhi(
         **kw_spherical,
     )
 
-    da = georef.georeference_dataset(da, proj=proj)
+    da = georef.georeference(da, proj=proj)
 
     if util.has_import(osr):
         # fallback to proj=None for GDAL OSR
@@ -1165,7 +1165,7 @@ def plot(data, **kwargs):
     ``**kwargs`` may be used to try to influence the
     :func:`matplotlib.pyplot.pcolormesh`, :func:`matplotlib.pyplot.contour`
     and :func:`matplotlib.pyplot.contourf` and
-    :func:`wradlib.georef.xarray.georeference_dataset` routines under the hood.
+    :func:`wradlib.georef.polar.georeference` routines under the hood.
 
     Concerning the values of ``r``, ``az``, ``elev``, ``r`` should
     give the location of the center of each range bin, ``az`` and

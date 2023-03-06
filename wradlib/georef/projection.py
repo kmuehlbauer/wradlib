@@ -28,16 +28,19 @@ __all__ = [
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
+import warnings
 from functools import singledispatch
 
 import numpy as np
-from xarray import DataArray, Dataset
+import xradar as xd
+from xarray import DataArray, Dataset, apply_ufunc
 
 from wradlib.util import docstring, import_optional
 
 gdal = import_optional("osgeo.gdal")
 ogr = import_optional("osgeo.ogr")
 osr = import_optional("osgeo.osr")
+pyproj = import_optional("pyproj")
 
 # Taken from document "Radarkomposits - Projektionen und Gitter", Version 1.01
 # 5th of April 2022
@@ -217,6 +220,7 @@ def proj4_to_osr(proj4str):
     return proj
 
 
+@singledispatch
 def reproject(*args, **kwargs):
     """Transform coordinates from a source projection to a target projection.
 
@@ -329,6 +333,48 @@ def reproject(*args, **kwargs):
         if len(args) == 3:
             Z = trans[:, 2].reshape(zshape)
             return X, Y, Z
+
+
+@reproject.register(DataArray)
+@reproject.register(Dataset)
+def _reproject_xarray(obj, **kwargs):
+    obj = obj.copy()
+    proj_crs = xd.georeference.get_crs(obj)
+
+    osr_trg_crs = kwargs.get("projection_target", get_default_projection())
+
+    osr_crs = wkt_to_osr(proj_crs.to_wkt())
+
+    if kwargs.get("projection_source", None) is not None:
+        warnings.warn("overriding `spatial_ref`!")
+    kwargs.setdefault("projection_source", osr_crs)
+
+    x, y, z = obj.x, obj.y, obj.z
+    x, y, z = apply_ufunc(
+        reproject,
+        x,
+        y,
+        z,
+        input_core_dims=[
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+        ],
+        output_core_dims=[
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+            ["azimuth", "range"],
+        ],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    obj["x"], obj["y"], obj["z"] = x, y, z
+
+    proj_crs = pyproj.CRS.from_wkt(osr_trg_crs.ExportToWkt(["FORMAT=WKT2_2018"]))
+    obj = xd.georeference.add_crs(obj, crs=proj_crs)
+
+    return obj
 
 
 def get_default_projection():
@@ -564,3 +610,10 @@ class ProjectionMethods:
             return get_earth_radius(self, *args, **kwargs)
         else:
             return get_earth_radius(self._obj, *args, **kwargs)
+
+    @docstring(_reproject_xarray)
+    def reproject(self, *args, **kwargs):
+        if not isinstance(self, ProjectionMethods):
+            return reproject(self, *args, **kwargs)
+        else:
+            return reproject(self._obj, *args, **kwargs)
