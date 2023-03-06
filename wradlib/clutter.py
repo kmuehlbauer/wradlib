@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Copyright (c) 2011-2020, wradlib developers.
+# Copyright (c) 2011-2023, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
 """
@@ -27,11 +27,12 @@ from functools import singledispatch
 
 import numpy as np
 from scipy import ndimage
-from xarray import DataArray, apply_ufunc
+from xarray import DataArray, Dataset, apply_ufunc
 
 from wradlib import dp, util
 
 
+@singledispatch
 def filter_gabella_a(img, wsize, tr1, cartesian=False, radial=False):
     """First part of the Gabella filter looking for large reflectivity \
     gradients.
@@ -89,6 +90,65 @@ def filter_gabella_a(img, wsize, tr1, cartesian=False, radial=False):
     return count
 
 
+@filter_gabella_a.register(DataArray)
+def _filter_gabella_a_xarray(obj, **kwargs):
+    """First part of the Gabella filter looking for large reflectivity gradients.
+
+    This function checks for each pixel in ``img`` how many pixels surrounding
+    it in a window of ``wsize`` are by ``tr1`` smaller than the central pixel.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset`
+        radar image to which the filter is to be applied
+
+    Keyword Arguments
+    -----------------
+    wsize : int
+        Size of the window surrounding the central pixel
+    tr1 : float
+        Threshold value
+    cartesian : bool
+        Specify if the input grid is Cartesian or polar
+    radial : bool
+        Specify if only radial information should be used
+
+    Returns
+    -------
+    out : :py:class:`xarray:xarray.Dataset`
+        an array with the same shape as ``img``, containing the
+        filter's results.
+
+    See Also
+    --------
+    :func:`~wradlib.clutter.filter_gabella` - the complete filter
+
+    :func:`~wradlib.clutter.filter_gabella_b` - the second part of the filter
+
+    Examples
+    --------
+
+    See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
+
+    """
+    wsize = kwargs.pop("wsize", 5)
+    tr1 = kwargs.pop("tr1", 6.0)
+    out = apply_ufunc(
+        filter_gabella_a,
+        obj,
+        wsize,
+        tr1,
+        input_core_dims=[["azimuth", "range"], [], []],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "filter_gabella_a"
+    return out
+
+
+@singledispatch
 def filter_gabella_b(img, thrs=0.0):
     """Second part of the Gabella filter comparing area to circumference of \
     contiguous echo regions.
@@ -148,6 +208,52 @@ def filter_gabella_b(img, thrs=0.0):
     return result
 
 
+@filter_gabella_b.register(DataArray)
+def _filter_gabella_b_xarray(obj, **kwargs):
+    """Second part of the Gabella filter comparing area to circumference of \
+    contiguous echo regions.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    thrs : float
+        Threshold below which the field values will be considered as no rain
+
+    Returns
+    -------
+    out: :py:class:`xarray:xarray.Dataset`
+        contains in each pixel the ratio between area and circumference of the
+        meteorological echo it is assigned to or 0 for non precipitation
+        pixels.
+
+    See Also
+    --------
+    :func:`~wradlib.clutter.filter_gabella` - the complete filter
+
+    :func:`~wradlib.clutter.filter_gabella_a` - the first part of the filter
+
+    Examples
+    --------
+
+    See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
+
+    """
+    out = apply_ufunc(
+        filter_gabella_b,
+        obj,
+        input_core_dims=[["azimuth", "range"]],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "filter_gabella_b"
+    return out
+
+
 @singledispatch
 def filter_gabella(
     img,
@@ -169,6 +275,9 @@ def filter_gabella(
     Parameters
     ----------
     img : :py:class:`numpy:numpy.ndarray`
+
+    Keyword Arguments
+    -----------------
     wsize : int
         Size of the window surrounding the central pixel
     thrsnorain : float
@@ -219,6 +328,50 @@ def filter_gabella(
 
 @filter_gabella.register(DataArray)
 def _filter_gabella_xarray(obj, **kwargs):
+    """Clutter identification filter developed by :cite:`Gabella2002`.
+
+    This is a two-part identification algorithm using echo continuity and
+    minimum echo area to distinguish between meteorological (rain) and non-
+    meteorological echos (ground clutter etc.)
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    wsize : int
+        Size of the window surrounding the central pixel
+    thrsnorain : float
+    tr1 : float
+    n_p : int
+    tr2 : float
+    rm_nans : bool
+        True replaces nans with Inf
+        False takes nans into acount
+    radial : bool
+        True to use radial information only in
+        :func:`~wradlib.clutter.filter_gabella_a`.
+    cartesian : bool
+        True if cartesian data are used, polar assumed if False.
+
+    Returns
+    -------
+    output : :py:class:`xarray:xarray.DataArray`
+        boolean array with pixels identified as clutter set to True.
+
+    See Also
+    --------
+    :func:`~wradlib.clutter.filter_gabella_a` - the first part of the filter
+
+    :func:`~wradlib.clutter.filter_gabella_b` - the second part of the filter
+
+    Examples
+    --------
+
+    See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
+
+    """
     out = apply_ufunc(
         filter_gabella,
         obj,
@@ -337,6 +490,46 @@ def histo_cut(prec_accum, upper_frequency=0.01, lower_frequency=0.01):
 
 @histo_cut.register(DataArray)
 def _histo_cut_xarray(obj, **kwargs):
+    """Histogram based clutter identification.
+
+    This identification algorithm uses the histogram of temporal accumulated
+    rainfall. It iteratively detects classes whose frequency falls below a
+    specified percentage (1% by default) of the frequency of the class with the
+    biggest frequency and remove the values from the dataset until the changes
+    from iteration to iteration falls below a threshold. This algorithm is able
+    to detect static clutter as well as shadings.
+
+    The tresholds for the upper frequency (clutter) and the lower frequency (shading)
+    can be parameterized by the respective kwargs, `upper_frequency`/`lower_frequency`.
+
+    It is suggested to choose a representative time periode for the input precipitation
+    accumulation. The recommended time period should cover one year.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.Dataset`
+        spatial array containing rain accumulation
+
+    Keyword Arguments
+    -----------------
+    upper_frequency : float
+        Upper frequency percentage for clutter detection, defaults to 0.01.
+    lower_frequency : float
+        Lower frequency percentage for shading detection, defaults to 0.01.
+
+    Returns
+    -------
+    output : :py:class:`xarray:xarray.Dataset`
+        uint8 array with pixels identified as clutter set to 1 and shadings set to 2.
+        Remaining pixels set to 0. Users strictly relying on a boolean mask might have
+        to explicitely cast to boolean (adding `.astype(np.bool)` on the return).
+
+    Examples
+    --------
+
+    See :ref:`/notebooks/classify/wradlib_histo_cut_example.ipynb`.
+    """
+
     out = apply_ufunc(
         histo_cut,
         obj,
@@ -350,6 +543,7 @@ def _histo_cut_xarray(obj, **kwargs):
     return out
 
 
+@singledispatch
 def classify_echo_fuzzy(dat, weights=None, trpz=None, thresh=0.5):
     """Fuzzy echo classification and clutter identification based on \
     polarimetric moments.
@@ -566,6 +760,108 @@ def classify_echo_fuzzy(dat, weights=None, trpz=None, thresh=0.5):
     return np.where(q < thresh, True, False), nan_mask
 
 
+def _classify_echo_fuzzy_wrapper(*args, **kwargs):
+    mom = ["rho", "phi", "ref", "dop", "zdr", "map"][:len(args)]
+    dat = {name: value for name, value in zip(mom, args)}
+    out, mask = classify_echo_fuzzy(dat, **kwargs)
+    return out, mask
+
+
+@classify_echo_fuzzy.register(Dataset)
+def _classify_echo_fuzzy_xarray(obj, dat, **kwargs):
+    """Fuzzy echo classification and clutter identification based on polarimetric moments.
+
+    The implementation is based on :cite:`Vulpiani2012`. At the
+    moment, it only distinguishes between meteorological and non-meteorological
+    echos.
+
+    For Clutter Phase Alignment (CPA) see :cite:`Hubbert2009a` and
+    :cite:`Hubbert2009b`
+
+    For each decision variable and radar bin, the algorithm uses trapezoidal
+    functions in order to define the membership to the non-meteorological
+    echo class.
+    Based on pre-defined weights, a linear combination of the different degrees
+    of membership is computed. The echo is assumed to be non-meteorological
+    in case the linear combination exceeds a threshold.
+
+    At the moment, the following decision variables are considered:
+        - Texture of differential reflectivity (zdr) (mandatory)
+        - Texture of correlation coefficient (rho) (mandatory)
+        - Texture of differential propagation phase (phidp) (mandatory)
+        - Doppler velocity (dop) (mandatory)
+        - Static clutter map (map) (mandatory)
+        - Correlation coefficient (rho2) (additional)
+        - Depolarization Ratio (dr), computed from
+          correlation coefficient & differential reflectivity (additional)
+        - clutter phase alignment (cpa) (additional)
+
+    Parameters
+    ----------
+    obj : xarray.dataset
+    dat : dict
+        Mapping of moment names.
+
+    Keyword Arguments
+    -----------------
+    weights : dict
+        dictionary of floats.
+        Defines the weights of the decision variables. Default is:
+        zdr: 0.4,
+        rho: 0.4,
+        phi: 0.1,
+        dop: 0.1,
+        map: 0.5,
+        rho2: 0.4,
+        dr: 0.4,
+        cpa: 0.4.
+    trpz : dict
+        dictionary of lists of floats.
+        Contains the arguments of the trapezoidal membership functions for each
+        decision variable. Default is:
+        zdr: [0.7, 1.0, 9999, 9999],
+        rho: [0.1, 0.15, 9999, 9999],
+        phi: [15, 20, 10000, 10000],
+        dop: [-0.2, -0.1, 0.1, 0.2],
+        map: [1, 1, 9999, 9999],
+        rho2: [-9999, -9999, 0.95, 0.98],
+        dr: [-20, -12, 9999, 9999],
+        cpa: [0.6, 0.9, 9999, 9999].
+    thresh : float
+       Threshold below which membership in non-meteorological membership class
+       is assumed.
+
+    Returns
+    -------
+    cmap : DataArray
+        DataArray indicating non-meteorological echos based on the fuzzy classification.
+    mask : DataArray
+        DataArray indicating where all the polarimetric moments had missing values which
+        could be used as an additional information criterion.
+
+    See Also
+    --------
+    :func:`~wradlib.dp.texture` - texture
+
+    :func:`~wradlib.dp.depolarization` - depolarization ratio
+
+    """
+    mom = ["rho", "phi", "ref", "dop", "zdr", "map", "rho2", "dpr", "cpa"]
+    args = [obj[dat[m]] for m in mom if m in dat]
+    input_core_dims = [["azimuth", "range"]] * len(dat)
+    out, mask = apply_ufunc(
+        _classify_echo_fuzzy_wrapper,
+        *args,
+        input_core_dims=input_core_dims,
+        output_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "classify_echo_fuzzy"
+    return out, mask
+
+
 def _weight_array(data, weight):
     """
     Generates weight array where valid values have the weight value
@@ -635,6 +931,7 @@ def filter_cloudtype(
     return clutter
 
 
+@singledispatch
 def filter_window_distance(img, rscale, fsize=1500, tr1=7):
     """2d filter looking for large reflectivity gradients.
 
@@ -706,6 +1003,54 @@ def filter_window_distance(img, rscale, fsize=1500, tr1=7):
     return similar
 
 
+@filter_window_distance.register(Dataset)
+@filter_window_distance.register(DataArray)
+def _filter_window_distance_xarray(obj, **kwargs):
+    """2d filter looking for large reflectivity gradients.
+
+    This function counts for each bin in ``img`` the percentage of surrounding
+    bins in a window of half size ``fsize`` which are not ``tr1`` smaller than
+    the central bin. The window is defined using geometrical distance.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray`
+        2d polar data to which the filter is to be applied
+
+    Keyword Arguments
+    -----------------
+    fsize : int
+        Half-size [m] of the square window surrounding the central pixel
+    tr1 : float
+        Threshold value
+
+    Returns
+    -------
+    output : :py:class:`xarray:xarray.DataArray`
+        an array with the same shape as ``img``, containing the
+        filter's results.
+
+    See Also
+    --------
+    :func:`~wradlib.clutter.filter_gabella_a` - Original version of the filter
+
+    :func:`~wradlib.clutter.filter_gabella_b` - filter using a echo area
+    """
+    rscale = obj.range.diff("range").median()
+    out = apply_ufunc(
+        filter_window_distance,
+        obj,
+        rscale.values,
+        input_core_dims=[["azimuth", "range"], []],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        kwargs=kwargs,
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "filter_window_distance"
+    return out
+
+
 class ClutterMethods(util.XarrayMethods):
     """wradlib xarray SubAccessor methods for DualPol."""
 
@@ -716,12 +1061,40 @@ class ClutterMethods(util.XarrayMethods):
         else:
             return filter_gabella(self._obj, *args, **kwargs)
 
+    @util.docstring(_filter_gabella_a_xarray)
+    def filter_gabella_a(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return filter_gabella_a(self, *args, **kwargs)
+        else:
+            return filter_gabella_a(self._obj, *args, **kwargs)
+
+    @util.docstring(_filter_gabella_b_xarray)
+    def filter_gabella_b(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return filter_gabella_b(self, *args, **kwargs)
+        else:
+            return filter_gabella_b(self._obj, *args, **kwargs)
+
     @util.docstring(_histo_cut_xarray)
     def histo_cut(self, *args, **kwargs):
         if not isinstance(self, ClutterMethods):
             return histo_cut(self, *args, **kwargs)
         else:
             return histo_cut(self._obj, *args, **kwargs)
+
+    @util.docstring(_classify_echo_fuzzy_xarray)
+    def classify_echo_fuzzy(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return classify_echo_fuzzy(self, *args, **kwargs)
+        else:
+            return classify_echo_fuzzy(self._obj, *args, **kwargs)
+
+    @util.docstring(_filter_window_distance_xarray)
+    def filter_window_distance(self, *args, **kwargs):
+        if not isinstance(self, ClutterMethods):
+            return filter_window_distance(self, *args, **kwargs)
+        else:
+            return filter_window_distance(self._obj, *args, **kwargs)
 
 
 if __name__ == "__main__":
