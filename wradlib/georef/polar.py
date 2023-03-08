@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-# Copyright (c) 2011-2020, wradlib developers.
+# Copyright (c) 2011-2023, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
 """
@@ -302,6 +302,7 @@ Georeferencing-and-Projection`.
 
 
 @spherical_to_proj.register(Dataset)
+@spherical_to_proj.register(DataArray)
 def _spherical_to_proj_xarray(obj, **kwargs):
     """Transforms spherical coordinates (r, phi, theta) to projected
     coordinates centered at sitecoords in given projection.
@@ -525,6 +526,7 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
 
 
 @spherical_to_polyvert.register(Dataset)
+@spherical_to_polyvert.register(DataArray)
 def _spherical_to_polyvert_xarray(obj, **kwargs):
     """
     Generate 3-D polygon vertices directly from spherical coordinates
@@ -655,6 +657,7 @@ def spherical_to_centroids(r, phi, theta, sitecoords, proj=None):
 
 
 @spherical_to_centroids.register(Dataset)
+@spherical_to_polyvert.register(DataArray)
 def _spherical_to_centroids_xarray(obj, **kwargs):
     """
     Generate 3-D centroids of the radar bins from the sperical

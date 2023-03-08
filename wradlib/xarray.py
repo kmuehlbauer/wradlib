@@ -19,7 +19,7 @@ xarray DataArrays and Datasets.
    {}
 
 """
-__all__ = ["WradlibDataArrayAccessor"]
+__all__ = ["WradlibXarrayAccessor"]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import re
@@ -31,10 +31,19 @@ import wradlib
 
 @xr.register_dataarray_accessor("wrl")
 @xr.register_dataset_accessor("wrl")
-class WradlibDataArrayAccessor:
-    """DataArray Accessor for wradlib module functions"""
+class WradlibXarrayAccessor:
+    """Xarray Accessor for wradlib module functions"""
 
-    __slots__ = ["_obj", "_clutter", "_dp", "_georef", "_trafo", "_util", "_vis", "_zr"]
+    __slots__ = [
+        "_obj",
+        "_classify",
+        "_dp",
+        "_georef",
+        "_trafo",
+        "_util",
+        "_vis",
+        "_zr",
+    ]
 
     def __init__(self, xarray_obj):
         for slot in self.__slots__:
@@ -48,11 +57,11 @@ class WradlibDataArrayAccessor:
         return re.sub(r"<.+>", f"<{self.__class__.__name__}>", str(self._obj))
 
     @property
-    def clutter(self):
-        """SubAccessor for :class:`wradlib.clutter.ClutterMethods`."""
-        if self._clutter is None:
-            self._clutter = wradlib.clutter.ClutterMethods(self._obj)
-        return self._clutter
+    def classify(self):
+        """SubAccessor for :class:`wradlib.classify.ClassifyMethods`."""
+        if self._classify is None:
+            self._classify = wradlib.classify.ClassifyMethods(self._obj)
+        return self._classify
 
     @property
     def dp(self):

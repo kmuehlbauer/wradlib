@@ -10,6 +10,12 @@ Georeferencing
 .. toctree::
     :maxdepth: 2
 
+.. autosummary::
+   :nosignatures:
+   :toctree: generated/
+
+   {}
+
 .. automodule:: wradlib.georef.misc
 .. automodule:: wradlib.georef.polar
 .. automodule:: wradlib.georef.projection
@@ -19,6 +25,8 @@ Georeferencing
 .. automodule:: wradlib.georef.vector
 .. automodule:: wradlib.georef.xarray
 """
+__doc__ = __doc__.format("\n   ".join(["GeorefMethods"]))
+
 from .misc import *
 from .polar import *
 from .projection import *

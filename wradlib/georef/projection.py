@@ -346,7 +346,7 @@ def _reproject_xarray(obj, **kwargs):
 
     Keyword Arguments
     -----------------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    projection_target : :py:class:`gdal:osgeo.osr.SpatialReference`
 
     area_of_interest : tuple
         tuple of floats (WestLongitudeDeg, SouthLatitudeDeg, EastLongitudeDeg,
@@ -496,9 +496,9 @@ def get_earth_radius(latitude, sr=None):
     return radius
 
 
-@get_earth_radius.register(DataArray)
 @get_earth_radius.register(Dataset)
-def _get_earth_radius_xarray(ds, sr=None):
+@get_earth_radius.register(DataArray)
+def _get_earth_radius_xarray(obj, sr=None):
     """Get the radius of the Earth (in km) for a given Spheroid model (sr) at \
     a given position.
 
@@ -509,18 +509,16 @@ def _get_earth_radius_xarray(ds, sr=None):
 
     Parameters
     ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
     sr : :py:class:`gdal:osgeo.osr.SpatialReference`
         spatial reference
-    latitude : float
-        geodetic latitude in degrees
 
     Returns
     -------
     radius : float
         earth radius in meter
-
     """
-    latitude = ds.latitude.values
+    latitude = obj.latitude.values
     if sr is None:
         sr = get_default_projection()
     radius_e = sr.GetSemiMajor()
