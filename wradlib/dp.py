@@ -18,12 +18,12 @@ Please note that the actual application of polarimetric moments is implemented
 in the corresponding wradlib modules, e.g.:
 
     - fuzzy echo classification from polarimetric moments
-      (:func:`wradlib.clutter.classify_echo_fuzzy`)
+      (:func:`wradlib.classify.classify_echo_fuzzy`)
     - attenuation correction (:func:`wradlib.atten.pia_from_kdp`)
     - direct precipitation retrieval from Kdp (:func:`wradlib.trafo.kdp_to_r`)
 
 Establishing a valid :math:`Phi_{{DP}}` profile for :math:`K_{{DP}}` retrieval
-involves despeckling (linear_despeckle), phase unfolding, and iterative
+involves despeckling (:func:`wradlib.util.despeckle`), phase unfolding, and iterative
 retrieval of :math:`Phi_{{DP}}` form :math:`K_{{DP}}`.
 The main workflow and its single steps is based on a publication by
 :cite:`Vulpiani2012`. For convenience, the entire workflow has been
@@ -69,7 +69,7 @@ from wradlib import trafo, util
 
 @singledispatch
 def process_raw_phidp_vulpiani(
-    phidp, dr, ndespeckle=5, winlen=7, niter=2, copy=False, **kwargs
+    obj, dr, ndespeckle=5, winlen=7, niter=2, copy=False, **kwargs
 ):
     """Establish consistent :math:`Phi_{DP}` profiles from raw data.
 
@@ -87,7 +87,7 @@ def process_raw_phidp_vulpiani(
 
     Parameters
     ----------
-    phidp : :class:`numpy:numpy.ndarray`
+    obj : :class:`numpy:numpy.ndarray`
         array of shape (n azimuth angles, n range gates)
     dr : float
         gate length in km
@@ -126,7 +126,7 @@ def process_raw_phidp_vulpiani(
 
     """
     if copy:
-        phidp = phidp.copy()
+        obj = obj.copy()
 
     # get thresholds
     th1 = kwargs.pop("th1", -2)
@@ -136,7 +136,7 @@ def process_raw_phidp_vulpiani(
     method = kwargs.pop("method", None)
 
     # despeckle
-    phidp = util.despeckle(phidp, ndespeckle)
+    phidp = util.despeckle(obj, ndespeckle)
 
     # kdp retrieval first guess
     # use finite difference scheme as written in the cited paper

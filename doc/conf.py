@@ -202,6 +202,9 @@ myst_substitutions = {
     "today": dt.datetime.utcnow().strftime("%Y-%m-%d"),
     "release": release,
     "wradlib": "$\\omega radlib$",
+    "xradar": "[xradar](https://xradar.rtfd.io)",
+    "xarray": "[xarray](https://docs.xarray.dev)",
+    "dask": "[Dask](https://docs.dask.org)",
 }
 
 # There are two options for replacing |today|: either, you set today to some
@@ -364,6 +367,8 @@ intersphinx_mapping = {
     "matplotlib": ("https://matplotlib.org/stable/", None),
     "sphinx": ("https://www.sphinx-doc.org/en/master/", None),
     "xarray": ("https://xarray.pydata.org/en/stable/", None),
+    "xradar": ("https://docs.openradarscience.org/projects/xradar/en/stable/", None),
+    "datatree": ("https://xarray-datatree.readthedocs.io/en/stable/", None),
     "cartopy": ("https://scitools.org.uk/cartopy/docs/latest/", None),
     "gdal": ("https://gdal.org/", None),
 }

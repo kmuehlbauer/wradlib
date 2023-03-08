@@ -9,7 +9,6 @@ documented separately.
 adjust
 atten
 classify
-clutter
 comp
 dp
 georef

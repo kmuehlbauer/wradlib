@@ -1,44 +1,133 @@
-# wradlib 2.0 migration guide
+# wradlib 2.0 migration
 
-## Xarray readers for polar data
+## Introduction
 
-The xarray based radar readers for polar data have been moved to [xradar](xradar.rtfd.io)-package
+For {{wradlib}} 2.0 there have been quite some deprecations and additions. Most of the changes have been announced over the latest wradlib 1 versions. Nevertheless, to make a clean cut it was neccessary to change and remove code and functionality which was not yet being officially deprecated.
+
+The early experiments with {{xarray}} reading capabilities (deprecated) have been removed, the more mature {{xarray}} backend code has been ported to {{xradar}}-package from where {{wradlib}} is importing it.
+
+There have also been quite some changes to the visualization code. For several years now, the `plot_ppi`/`plot_rhi`-functions have converted the provided arguments to an
+{py:class}`xarray:xarray.DataArray` under the hood. To lessen that code burden these functions are also removed. The user now has to convert the data to {py:class}`xarray:xarray.DataArray`, if not already reading via {{xradar}}. Finally, the unified {py:func}`wradlib.vis.plot`-function manages all plotting.
+
+To bring {{wradlib}}'s integration with {{xarray}} to a new level, many functions have already been bound to either {py:class}`xarray:xarray.DataArray` or {py:class}`xarray:xarray.Dataset` by Accessors as laid out in <inv:xarray:std:doc#internals/extending-xarray>. To remain backwards compatible with users numpy-based workflows the functions have been overloaded using {py:func}`functools.singledispatch`-decorator. Within the overloaded functions the numpy-functions are called via {py:func}`xarray:xarray.apply_ufunc`. Usage of {{dask}}, and with that lazy-processing, is currently only available on those functions which are already capable. The adaption or rewrite of code can now be done using a unified calling convention for numpy- as well as {{xarray}}-based functions.
+
+In the next sections the additions and deprecations (including breaking changes) are announced on a per module basis.
+
+## adjust - Submodule
+
+No deprecations or additions.
+
+## atten - Submodule
+
+No deprecations or additions.
+
+## classify - Submodule
+
+Merged with code from `clutter`-module.
+
+Implemented Xarray Accessor `wrl.classify` ({py:class}`wradlib.classify.ClassifyMethods`) with:
+
+- {py:func}`~wradlib.classify.filter_gabella`
+- {py:func}`~wradlib.classify.filter_gabella_a`
+- {py:func}`~wradlib.classify.filter_gabella_b`
+- {py:func}`~wradlib.classify.histo_cut`
+- {py:func}`~wradlib.classify.classify_echo_fuzzy`
+- {py:func}`~wradlib.classify.filter_window_distance`
+
+## clutter - Submodule
 
 ### Deprecations
 
-- wrl.io.ODIMH5
-- wrl.io.CfRadial
-- wrl.io.XRadVol
-- wrl.io.open_odim
-- wrl.io.XRadSweep
-- wrl.io.XRadMoment
-- wrl.io.XRadTimeSeries
-- wrl.io.XRadVolume
-- wrl.io.RadarVolume
-- wrl.io.open_radar_dataset
-- wrl.io.open_radar_mfdataset
-- wrl.io.to_netcdf
-- wrl.io.open_rainbow_dataset
-- wrl.io.open_rainbow_mfdataset
-- wrl.io.open_cfradial1_dataset
-- wrl.io.open_cdradial1_mfdataset
-- wrl.io.open_cfradial2_dataset
-- wrl.io.open_cdradial2_mfdataset
-- wrl.io.open_iris_dataset
-- wrl.io.open_iris_mfdataset
-- wrl.io.open_odim_dataset
-- wrl.io.open_odim_mfdataset
-- wrl.io.open_gamic_dataset
-- wrl.io.open_gamic_mfdataset
-- wrl.io.open_furuno_dataset
-- wrl.io.open_furuno_mfdataset
-- wrl.io.CfRadial1BackendEntrypoint
-- wrl.io.CfRadial2BackendEntrypoint
-- wrl.io.FurunoBackendEntrypoint
-- wrl.io.GamicBackendEntrypoint
-- wrl.io.OdimBackendEntrypoint
-- wrl.io.RainbowBackendEntrypoint
-- wrl.io.IrisBackendEntrypoint
+Functions have been merged with {py:mod}`wradlib.classify`-submodule (see above). Module has been removed.
+
+## comp - Submodule
+
+No deprecations or additions.
+
+## dp - Submodule
+
+### Additions
+
+Implemented Xarray Accessor `wrl.dp` ({py:class}`wradlib.dp.DpMethods`) with:
+
+- {py:func}`~wradlib.dp.depolarization`
+- {py:func}`~wradlib.dp.kdp_from_phidp`
+- {py:func}`~wradlib.dp.process_raw_phidp_vulpiani`
+- {py:func}`~wradlib.dp.texture`
+- {py:func}`~wradlib.dp.unfold_phi_naive`
+- {py:func}`~wradlib.dp.unfold_phi`
+- {py:func}`~wradlib.dp.unfold_phi_vulpiani`
+
+### Deprecations
+
+- `wrl.dp.linear_despeckle` -> {py:func}`wradlib.util.despeckle`
+
+## georef-submodule
+### Additions
+
+Implemented Xarray Accessor `wrl.georef` ({py:class}`wradlib.georef.GeorefMethods`) with:
+
+- MiscMethods
+  - {py:func}`~wradlib.georef.misc.bin_altitude`
+  - {py:func}`~wradlib.georef.misc.bin_distance`
+  - {py:func}`~wradlib.georef.misc.site_distance`
+
+- PolarMethods
+  - {py:func}`~wradlib.georef.polar.georeference`
+  - {py:func}`~wradlib.georef.polar.spherical_to_xyz`
+  - {py:func}`~wradlib.georef.polar.spherical_to_proj`
+  - {py:func}`~wradlib.georef.polar.spherical_to_polyvert`
+  - {py:func}`~wradlib.georef.polar.spherical_to_centroids`
+
+- ProjectionMethods
+  - {py:func}`~wradlib.georef.projection.get_earth_radius`
+  - {py:func}`~wradlib.georef.projection.reproject`
+
+### Deprecations
+
+- `wradlib.georef.xarray.georeference_dataset` -> {py:func}`wradlib.georef.polar.georeference`
+
+## io - Submodule
+
+### Deprecations
+
+The xarray based radar readers for polar data have been moved to {{xradar}}-package
+
+- `wradlib.io.ODIMH5`
+- `wradlibio.CfRadial`
+- `wradlibio.XRadVol`
+- `wradlibio.open_odim`
+- `wradlibio.XRadSweep`
+- `wradlibio.XRadMoment`
+- `wradlibio.XRadTimeSeries`
+- `wradlibio.XRadVolume`
+- `wradlibio.RadarVolume`
+- `wradlibio.open_radar_dataset`
+- `wradlibio.open_radar_mfdataset`
+- `wradlibio.to_netcdf`
+- `wradlibio.open_rainbow_dataset`
+- `wradlibio.open_rainbow_mfdataset`
+- `wradlibio.open_cfradial1_dataset`
+- `wradlibio.open_cdradial1_mfdataset`
+- `wradlibio.open_cfradial2_dataset`
+- `wradlibio.open_cdradial2_mfdataset`
+- `wradlibio.open_iris_dataset`
+- `wradlibio.open_iris_mfdataset`
+- `wradlibio.open_odim_dataset`
+- `wradlibio.open_odim_mfdataset`
+- `wradlibio.open_gamic_dataset`
+- `wradlibio.open_gamic_mfdataset`
+- `wradlibio.open_furuno_dataset`
+- `wradlibio.open_furuno_mfdataset`
+- `wradlibio.CfRadial1BackendEntrypoint`
+- `wradlibio.CfRadial2BackendEntrypoint`
+- `wradlibio.FurunoBackendEntrypoint`
+- `wradlibio.GamicBackendEntrypoint`
+- `wradlibio.OdimBackendEntrypoint`
+- `wradlibio.RainbowBackendEntrypoint`
+- `wradlibio.IrisBackendEntrypoint`
+- `wradlib.io.radolan_to_xarray` - {py:func}`wradlib.io.radolan.open_radolan_dataset` or {py:func}`xarray:xarray.open_dataset` with `engine="radolan"`
+- `wradlib.io.create_xarray_dataarray` -> {py:func}`wradlib.georef.xarray.create_xarray_dataarray`
 
 ### How can I read my data now?
 
@@ -47,20 +136,20 @@ The xarray based radar readers for polar data have been moved to [xradar](xradar
 ```python
 swp = xarray.open_dataset(filename, engine=engine, group=group)
 ```
-`engine` would we one `BackendName``defined in [xradar](https://xradar.rtfd.io), where currently available are:
+`engine` would we one `BackendName` defined in {{xradar}}, where currently available are:
 
-- [cfradial1](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/CfRadial1.html)
-- [odim](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/ODIM_H5.html)
-- [gamic](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/GAMIC.html)
-- [rainbow](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Rainbow.html)
-- [iris](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Iris.html)
-- [furuno](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Furuno.html)
+- [cfradial1](inv:xradar:std:doc#notebooks/CfRadial1)
+- [odim](inv:xradar:std:doc#notebooks/ODIM_H5)
+- [gamic](inv:xradar:std:doc#notebooks/GAMIC)
+- [rainbow](inv:xradar:std:doc#notebooks/Rainbow)
+- [iris](inv:xradar:std:doc#notebooks/Iris)
+- [furuno](inv:xradar:std:doc#notebooks/Furuno)
 
 `group` would be a string like `sweep_0` for first sweep, `sweep_1` for second sweep and so forth.
 
-The above command will return an `xarray.Dataset` which is aligned with the CfRadial2/FM301 standard. Please refer to the [xradar model](https://docs.openradarscience.org/projects/xradar/en/stable/datamodel.html).
+The above command will return an `xarray.Dataset` which is aligned with the CfRadial2/FM301 standard. Please refer to the <inv:xradar:std:doc#model>.
 
-Please also refer to the [xarray.open_dataset](https://docs.xarray.dev/en/stable/generated/xarray.open_dataset.html) documentation.
+Please also refer to {py:func}`xarray:xarray.open_dataset` documentation.
 
 #### Timeseries of sweeps
 
@@ -68,9 +157,9 @@ Please also refer to the [xarray.open_dataset](https://docs.xarray.dev/en/stable
 ts = xarray.open_mfdataset(filelist, concat_dim=time2, engine=engine, group=group, preprocess=preprocess)
 ```
 
-`preprocess` is here a function which is applied to each of the retrieved datasets to align them for stacking along the new dimension (`time2`). One use-case would be [angle reindexing](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/angle_reindexing.html).
+`preprocess` is here a function which is applied to each of the retrieved datasets to align them for stacking along the new dimension (`time2`). One use-case would be <inv:xradar:std:doc#notebooks/angle_reindexing>.
 
-Please also refer to the [xarray.open_dataset](https://docs.xarray.dev/en/stable/generated/xarray.open_mfdataset.html) documentation.
+Please also refer to {py:func}`xarray:xarray.open_mfdataset` documentation.
 
 #### Single metadata group
 
@@ -78,7 +167,7 @@ The same way different metadata groups can be retrieved. Just require the wanted
 
 #### Single Volume
 
-{{wradlib}}'s `RadarVolume` is replaced by `datatree.DataTree`.
+{{wradlib}}'s `RadarVolume` is replaced by {py:class}`datatree:datatree.DataTree`.
 
 ```python
 vol = xradar.open_cfradial1_datatree(filename)
@@ -86,35 +175,76 @@ vol = xradar.open_cfradial1_datatree(filename)
 
 Here, as well as above, each backend has it's own loading function:
 
-- [xradar.open_cfradial1_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/CfRadial1.html)
-- [xradar.open_odim_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/ODIM_H5.html)
-- [xradar.open_gamic_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/GAMIC.html)
-- [xradar.open_rainbow_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Rainbow.html)
-- [xradar.open_iris_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Iris.html)
-- [xradar.open_furuno_datatree](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Furuno.html)
-- [datatree.open_datatree](https://xarray-datatree.readthedocs.io/en/latest/generated/datatree.open_datatree.html)
+- {py:func}`xradar:xradar.io.backends.cfradial1.open_cfradial1_datatree`
+- {py:func}`xradar:xradar.io.backends.odim.open_odim_datatree`
+- {py:func}`xradar:xradar.io.backends.gamic.open_gamic_datatree`
+- {py:func}`xradar:xradar.io.backends.rainbow.open_rainbow_datatree`
+- {py:func}`xradar:xradar.io.backends.iris.open_iris_datatree`
+- {py:func}`xradar:xradar.io.backends.furuno.open_furuno_datatree`
+- {py:func}`datatree:datatree.open_datatree`
 
 #### Multiple Volumes
 
-This is not yet available out of the box as dedicated functions (like `xarray.open_mfdataset`) but this is [worked on at xradar](https://docs.openradarscience.org/projects/xradar/en/stable/notebooks/Multi-Volume-Concatenation.html).
+This is not yet available out of the box as dedicated functions (like {py:func}`xarray:xarray.open_mfdataset`) but this is worked on at <inv:xradar:std:doc#notebooks/Multi-Volume-Concatenation>.
 
-## IO/Xarrray
+## ipol - Submodule
+
+No deprecations or additions.
+
+## qual - Submodule
+### Additions
+
+Implemented Xarray Accessor `wrl.qual` ({py:class}`wradlib.qual.QualMethods`) with:
+
+- {py:func}`~wradlib.qual.pulse_volume`
+- {py:func}`~wradlib.qual.beam_block_frac`
+- {py:func}`~wradlib.qual.cum_beam_block_frac`
+
+## trafo - Submodule
+### Additions
+
+Implemented Xarray Accessor `wrl.trafo` ({py:class}`wradlib.trafo.TrafoMethods`) with:
+
+- {py:func}`~wradlib.trafo.decibel`
+- {py:func}`~wradlib.trafo.idecibel`
+
+## util - Submodule
+### Additions
+
+Implemented Xarray Accessor `wrl.util` ({py:class}`wradlib.util.UtilMethods`) with:
+
+- {py:func}`~wradlib.util.despeckle`
+- {py:func}`~wradlib.util.derivate`
+
+## verify - Submodule
+
+No deprecations or additions.
+
+## vis - Submodule
+### Additions
+
+Implemented Xarray Accessor `wrl.vis` ({py:class}`wradlib.vis.VisMethods`) with:
+
+- {py:func}`~wradlib.vis.plot`
+- `pcolormesh`
+- `contour`
+- `contourf`
 
 ### Deprecations
 
-- `wrl.io.radolan_to_xarray` - `wrl.io.open_radolan_dataset` or `xarray.open_dataset` with `engine="radolan"`
-- `wrl.io.create_xarray_dataarray` -> `wrl.georef.create_xarray_dataarray`
+- `plot_ppi`/`plot_rhi` ->  {py:func}`wradlib.georef.xarray.create_xarray_dataarray` and  {py:func}`wradlib.vis.plot` or xarray accessor `da.wrl.vis.plot()`
 
-## Misc
+## vpr - Submodule
+
+No deprecations or additions.
+
+## xarray - Submodule
+### Additions
+
+New module containing {py:class}`~wradlib.xarray.WradlibXarrayAccessor` implementation.
+
+## zonalstats - Submodule
 
 ### Deprecations
 
-- `wrl.dp.linear_despeckle` -> `wrl.util.despeckle`
-- `zonalstats.DataSource` -> `wrl.io.VectorSource`
-- `wrl.georef.xarray.georeference_dataset` -> `wrl.georef.polar.georeference`
-
-## Visualization
-
-### Deprecations
-
-- `plot_ppi`/`plot_rhi` -> `wrl.georef.create_xarray_dataarray` and `wrl.vis.plot(da)` or xarray accessor `da.wrl.vis.plot()`
+- `wradlib.zonalstats.DataSource` -> (py:class}`wradlib.io.vector.VectorSource`
