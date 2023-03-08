@@ -24,7 +24,7 @@ __all__ = [
     "get_radar_projection",
     "get_earth_projection",
     "get_extent",
-    "ProjectionMethods",
+    "GeorefProjectionMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
@@ -338,23 +338,43 @@ def reproject(*args, **kwargs):
 @reproject.register(DataArray)
 @reproject.register(Dataset)
 def _reproject_xarray(obj, **kwargs):
+    """Transform coordinates from current projection to a target projection.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+
+    area_of_interest : tuple
+        tuple of floats (WestLongitudeDeg, SouthLatitudeDeg, EastLongitudeDeg,
+        NorthLatitudeDeg)
+
+    Returns
+    -------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+        reprojected Dataset/DataArray
+
+    Examples
+    --------
+    See :ref:`/notebooks/georeferencing/wradlib_georef_example.ipynb`.
+    """
     obj = obj.copy()
-    proj_crs = xd.georeference.get_crs(obj)
-
-    osr_trg_crs = kwargs.get("projection_target", get_default_projection())
-
-    osr_crs = wkt_to_osr(proj_crs.to_wkt())
 
     if kwargs.get("projection_source", None) is not None:
-        warnings.warn("overriding `spatial_ref`!")
+        warnings.warn("projection_source kwarg ignored for xarray accessor")
+    proj_crs = xd.georeference.get_crs(obj)
+    osr_crs = wkt_to_osr(proj_crs.to_wkt())
     kwargs.setdefault("projection_source", osr_crs)
+    osr_trg_crs = kwargs.setdefault("projection_target", get_default_projection())
 
-    x, y, z = obj.x, obj.y, obj.z
-    x, y, z = apply_ufunc(
+    obj["x"], obj["y"], obj["z"] = apply_ufunc(
         reproject,
-        x,
-        y,
-        z,
+        obj.x,
+        obj.y,
+        obj.z,
         input_core_dims=[
             ["azimuth", "range"],
             ["azimuth", "range"],
@@ -369,7 +389,6 @@ def _reproject_xarray(obj, **kwargs):
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
-    obj["x"], obj["y"], obj["z"] = x, y, z
 
     proj_crs = pyproj.CRS.from_wkt(osr_trg_crs.ExportToWkt(["FORMAT=WKT2_2018"]))
     obj = xd.georeference.add_crs(obj, crs=proj_crs)
@@ -601,19 +620,19 @@ def get_extent(coords):
     return xmin, xmax, ymin, ymax
 
 
-class ProjectionMethods:
+class GeorefProjectionMethods:
     """wradlib xarray SubAccessor methods for Georef Projection Methods."""
 
     @docstring(_get_earth_radius_xarray)
     def get_earth_radius(self, *args, **kwargs):
-        if not isinstance(self, ProjectionMethods):
+        if not isinstance(self, GeorefProjectionMethods):
             return get_earth_radius(self, *args, **kwargs)
         else:
             return get_earth_radius(self._obj, *args, **kwargs)
 
     @docstring(_reproject_xarray)
     def reproject(self, *args, **kwargs):
-        if not isinstance(self, ProjectionMethods):
+        if not isinstance(self, GeorefProjectionMethods):
             return reproject(self, *args, **kwargs)
         else:
             return reproject(self._obj, *args, **kwargs)

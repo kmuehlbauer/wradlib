@@ -32,6 +32,7 @@ __all__ = [
     "kts_to_si",
     "KuBandToS",
     "SBandToKu",
+    "TrafoMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 

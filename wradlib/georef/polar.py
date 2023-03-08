@@ -22,7 +22,7 @@ __all__ = [
     "centroid_to_polyvert",
     "sweep_centroids",
     "maximum_intensity_projection",
-    "PolarMethods",
+    "GeorefPolarMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 __doctest_requires__ = {"spherical*": ["osgeo"]}
@@ -31,7 +31,7 @@ import warnings
 from functools import singledispatch
 
 import numpy as np
-from xarray import Dataset, apply_ufunc
+from xarray import DataArray, Dataset, apply_ufunc
 
 from wradlib.georef import misc, projection
 from wradlib.util import docstring, has_import, import_optional
@@ -165,7 +165,35 @@ def spherical_to_xyz(
 
 
 @spherical_to_xyz.register(Dataset)
+@spherical_to_xyz.register(DataArray)
 def _spherical_to_xyz_xarray(obj, **kwargs):
+    """Transforms spherical coordinates (r, phi, theta) to cartesian
+    coordinates (x, y, z) centered at sitecoords (aeqd).
+
+    It takes the shortening of the great circle
+    distance with increasing elevation angle as well as the resulting
+    increase in height into account.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    ke : float
+        adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths.
+
+    Returns
+    -------
+    xyz : :py:class:`xarray:xarray.DataArray`
+        Array of shape (..., 3). Contains cartesian coordinates.
+    rad : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+    """
     r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
         azimuth=obj.azimuth
     )
@@ -275,6 +303,33 @@ Georeferencing-and-Projection`.
 
 @spherical_to_proj.register(Dataset)
 def _spherical_to_proj_xarray(obj, **kwargs):
+    """Transforms spherical coordinates (r, phi, theta) to projected
+    coordinates centered at sitecoords in given projection.
+
+    It takes the shortening of the great circle
+    distance with increasing elevation angle as well as the resulting
+    increase in height into account.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+    ke : float
+        adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths.
+
+    Returns
+    -------
+    coords : :py:class:`xarray:xarray.DataArray`
+        Array of shape (..., 3). Contains projected map coordinates.
+    """
     r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
         azimuth=obj.azimuth
     )
@@ -471,7 +526,42 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
 
 @spherical_to_polyvert.register(Dataset)
 def _spherical_to_polyvert_xarray(obj, **kwargs):
-    # r, phi, theta, sitecoords, proj = None
+    """
+    Generate 3-D polygon vertices directly from spherical coordinates
+    (r, phi, theta).
+
+    This is an alternative to :func:`~wradlib.georef.polar.centroid_to_polyvert`
+    which does not use centroids, but generates the polygon vertices by simply
+    connecting the corners of the radar bins.
+
+    Both azimuth and range arrays are assumed to be equidistant and to contain
+    only unique values. For further information refer to the documentation of
+    :func:`~wradlib.georef.polar.spherical_to_xyz`.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+    ke : float
+        adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths.
+
+
+    Returns
+    -------
+    xyz : :py:class:`xarray:xarray.DataArray`
+        Array of shape (..., 3). Contains cartesian coordinates.
+    rad : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+    """
     rdiff = obj.range.diff("range").median() / 2.0
     r = obj.range + rdiff
     phi = obj.azimuth
@@ -566,6 +656,46 @@ def spherical_to_centroids(r, phi, theta, sitecoords, proj=None):
 
 @spherical_to_centroids.register(Dataset)
 def _spherical_to_centroids_xarray(obj, **kwargs):
+    """
+    Generate 3-D centroids of the radar bins from the sperical
+    coordinates (r, phi, theta).
+
+    Both azimuth and range arrays are assumed to be equidistant and to contain
+    only unique values. The ranges are assumed to define the exterior
+    boundaries of the range bins (thus they must be positive). The angles are
+    assumed to describe the pointing direction fo the main beam lobe.
+
+    For further information refer to the documentation of
+    :func:`~wradlib.georef.polar.spherical_to_xyz`.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+    ke : float
+        adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths.
+
+
+    Returns
+    -------
+    xyz : :py:class:`xarray:xarray.DataArray`
+        Array of shape (..., 3). Contains cartesian coordinates.
+    rad : :py:class:`gdal:osgeo.osr.SpatialReference`
+        Destination Spatial Reference System (Projection).
+        Defaults to wgs84 (epsg 4326).
+
+    Note
+    ----
+    Azimuth angles of 360 deg are internally converted to 0 deg.
+    """
     rdiff = obj.range.diff("range").median() / 2.0
     r = obj.range + rdiff
     phi = obj.azimuth
@@ -964,40 +1094,40 @@ def georeference(obj, **kwargs):
     return obj
 
 
-class PolarMethods:
+class GeorefPolarMethods:
     """wradlib xarray SubAccessor methods for Georef Polar Methods."""
 
     @docstring(georeference)
     def georeference(self, *args, **kwargs):
-        if not isinstance(self, PolarMethods):
+        if not isinstance(self, GeorefPolarMethods):
             return georeference(self, *args, **kwargs)
         else:
             return georeference(self._obj, *args, **kwargs)
 
     @docstring(_spherical_to_xyz_xarray)
     def spherical_to_xyz(self, *args, **kwargs):
-        if not isinstance(self, PolarMethods):
+        if not isinstance(self, GeorefPolarMethods):
             return spherical_to_xyz(self, *args, **kwargs)
         else:
             return spherical_to_xyz(self._obj, *args, **kwargs)
 
     @docstring(_spherical_to_proj_xarray)
     def spherical_to_proj(self, *args, **kwargs):
-        if not isinstance(self, PolarMethods):
+        if not isinstance(self, GeorefPolarMethods):
             return spherical_to_proj(self, *args, **kwargs)
         else:
             return spherical_to_proj(self._obj, *args, **kwargs)
 
     @docstring(_spherical_to_polyvert_xarray)
     def spherical_to_polyvert(self, *args, **kwargs):
-        if not isinstance(self, PolarMethods):
+        if not isinstance(self, GeorefPolarMethods):
             return spherical_to_polyvert(self, *args, **kwargs)
         else:
             return spherical_to_polyvert(self._obj, *args, **kwargs)
 
     @docstring(_spherical_to_centroids_xarray)
     def spherical_to_centroids(self, *args, **kwargs):
-        if not isinstance(self, PolarMethods):
+        if not isinstance(self, GeorefPolarMethods):
             return spherical_to_centroids(self, *args, **kwargs)
         else:
             return spherical_to_centroids(self._obj, *args, **kwargs)

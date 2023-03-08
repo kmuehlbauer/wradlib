@@ -13,7 +13,7 @@ Miscellaneous
 
    {}
 """
-__all__ = ["bin_altitude", "bin_distance", "site_distance", "MiscMethods"]
+__all__ = ["bin_altitude", "bin_distance", "site_distance", "GeorefMiscMethods"]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 from functools import singledispatch
@@ -264,26 +264,26 @@ def _site_distance_xarray(ds, **kwargs):
     return out
 
 
-class MiscMethods:
+class GeorefMiscMethods:
     """wradlib xarray SubAccessor methods for Georef Misc Methods."""
 
     @util.docstring(_bin_altitude_xarray)
     def bin_altitude(self, *args, **kwargs):
-        if not isinstance(self, MiscMethods):
+        if not isinstance(self, GeorefMiscMethods):
             return bin_altitude(self, *args, **kwargs)
         else:
             return bin_altitude(self._obj, *args, **kwargs)
 
     @util.docstring(_bin_distance_xarray)
     def bin_distance(self, *args, **kwargs):
-        if not isinstance(self, MiscMethods):
+        if not isinstance(self, GeorefMiscMethods):
             return bin_distance(self, *args, **kwargs)
         else:
             return bin_distance(self._obj, *args, **kwargs)
 
     @util.docstring(_site_distance_xarray)
     def site_distance(self, *args, **kwargs):
-        if not isinstance(self, MiscMethods):
+        if not isinstance(self, GeorefMiscMethods):
             return site_distance(self, *args, **kwargs)
         else:
             return site_distance(self._obj, *args, **kwargs)
