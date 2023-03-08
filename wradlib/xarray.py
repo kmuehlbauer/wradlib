@@ -34,7 +34,7 @@ import wradlib
 class WradlibDataArrayAccessor:
     """DataArray Accessor for wradlib module functions"""
 
-    __slots__ = ["_obj", "_clutter", "_dp", "_georef", "_trafo", "_vis"]
+    __slots__ = ["_obj", "_clutter", "_dp", "_georef", "_trafo", "_util", "_vis", "_zr"]
 
     def __init__(self, xarray_obj):
         for slot in self.__slots__:
@@ -48,39 +48,53 @@ class WradlibDataArrayAccessor:
         return re.sub(r"<.+>", f"<{self.__class__.__name__}>", str(self._obj))
 
     @property
-    def vis(self):
-        """SubAccessor for :class:`VisMethods`."""
-        if self._vis is None:
-            self._vis = wradlib.vis.VisMethods(self._obj)
-        return self._vis
-
-    @property
     def clutter(self):
-        """SubAccessor for :class:`DpMethods`."""
+        """SubAccessor for :class:`wradlib.clutter.ClutterMethods`."""
         if self._clutter is None:
             self._clutter = wradlib.clutter.ClutterMethods(self._obj)
         return self._clutter
 
     @property
     def dp(self):
-        """SubAccessor for :class:`DpMethods`."""
+        """SubAccessor for :class:`wradlib.dp.DpMethods`."""
         if self._dp is None:
             self._dp = wradlib.dp.DpMethods(self._obj)
         return self._dp
 
     @property
     def georef(self):
-        """SubAccessor for :class:`DpMethods`."""
+        """SubAccessor for :class:`wradlib.georef.GeorefMethods`."""
         if self._georef is None:
             self._georef = wradlib.georef.GeorefMethods(self._obj)
         return self._georef
 
     @property
     def trafo(self):
-        """SubAccessor for :class:`DpMethods`."""
+        """SubAccessor for :class:`wradlib.trafo.TrafoMethods`."""
         if self._trafo is None:
             self._trafo = wradlib.trafo.TrafoMethods(self._obj)
         return self._trafo
+
+    @property
+    def util(self):
+        """SubAccessor for :class:`wradlib.util.UtilMethods`."""
+        if self._util is None:
+            self._util = wradlib.util.UtilMethods(self._obj)
+        return self._util
+
+    @property
+    def vis(self):
+        """SubAccessor for :class:`wradlib.vis.VisMethods`."""
+        if self._vis is None:
+            self._vis = wradlib.vis.VisMethods(self._obj)
+        return self._vis
+
+    @property
+    def zr(self):
+        """SubAccessor for :class:`wradlib.zr.ZRMethods`."""
+        if self._vis is None:
+            self._vis = wradlib.zr.ZRMethods(self._obj)
+        return self._vis
 
 
 if __name__ == "__main__":

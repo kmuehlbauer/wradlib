@@ -20,14 +20,15 @@ __all__ = [
     "filter_window_distance",
     "histo_cut",
     "classify_echo_fuzzy",
+    "ClutterMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 from functools import singledispatch
 
 import numpy as np
+import xarray as xr  # import DataArray, Dataset, apply_ufunc, merge
 from scipy import ndimage
-from xarray import DataArray, Dataset, apply_ufunc
 
 from wradlib import dp, util
 
@@ -90,7 +91,7 @@ def filter_gabella_a(img, wsize, tr1, cartesian=False, radial=False):
     return count
 
 
-@filter_gabella_a.register(DataArray)
+@filter_gabella_a.register(xr.DataArray)
 def _filter_gabella_a_xarray(obj, **kwargs):
     """First part of the Gabella filter looking for large reflectivity gradients.
 
@@ -99,7 +100,7 @@ def _filter_gabella_a_xarray(obj, **kwargs):
 
     Parameters
     ----------
-    obj : :py:class:`xarray:xarray.Dataset`
+    obj : :py:class:`xarray:xarray.DataArray`
         radar image to which the filter is to be applied
 
     Keyword Arguments
@@ -115,7 +116,7 @@ def _filter_gabella_a_xarray(obj, **kwargs):
 
     Returns
     -------
-    out : :py:class:`xarray:xarray.Dataset`
+    out : :py:class:`xarray:xarray.DataArray`
         an array with the same shape as ``img``, containing the
         filter's results.
 
@@ -133,7 +134,7 @@ def _filter_gabella_a_xarray(obj, **kwargs):
     """
     wsize = kwargs.pop("wsize", 5)
     tr1 = kwargs.pop("tr1", 6.0)
-    out = apply_ufunc(
+    out = xr.apply_ufunc(
         filter_gabella_a,
         obj,
         wsize,
@@ -208,14 +209,14 @@ def filter_gabella_b(img, thrs=0.0):
     return result
 
 
-@filter_gabella_b.register(DataArray)
+@filter_gabella_b.register(xr.DataArray)
 def _filter_gabella_b_xarray(obj, **kwargs):
     """Second part of the Gabella filter comparing area to circumference of \
     contiguous echo regions.
 
     Parameters
     ----------
-    obj : :py:class:`xarray:xarray.Dataset`
+    obj : :py:class:`xarray:xarray.DataArray`
 
     Keyword Arguments
     -----------------
@@ -224,7 +225,7 @@ def _filter_gabella_b_xarray(obj, **kwargs):
 
     Returns
     -------
-    out: :py:class:`xarray:xarray.Dataset`
+    out: :py:class:`xarray:xarray.DataArray`
         contains in each pixel the ratio between area and circumference of the
         meteorological echo it is assigned to or 0 for non precipitation
         pixels.
@@ -241,7 +242,7 @@ def _filter_gabella_b_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
 
     """
-    out = apply_ufunc(
+    out = xr.apply_ufunc(
         filter_gabella_b,
         obj,
         input_core_dims=[["azimuth", "range"]],
@@ -326,7 +327,7 @@ def filter_gabella(
     return clutter1 | clutter2
 
 
-@filter_gabella.register(DataArray)
+@filter_gabella.register(xr.DataArray)
 def _filter_gabella_xarray(obj, **kwargs):
     """Clutter identification filter developed by :cite:`Gabella2002`.
 
@@ -336,7 +337,7 @@ def _filter_gabella_xarray(obj, **kwargs):
 
     Parameters
     ----------
-    obj : :py:class:`xarray:xarray.Dataset`
+    obj : :py:class:`xarray:xarray.DataArray`
 
     Keyword Arguments
     -----------------
@@ -372,7 +373,7 @@ def _filter_gabella_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
 
     """
-    out = apply_ufunc(
+    out = xr.apply_ufunc(
         filter_gabella,
         obj,
         input_core_dims=[["azimuth", "range"]],
@@ -488,7 +489,7 @@ def histo_cut(prec_accum, upper_frequency=0.01, lower_frequency=0.01):
     return mask
 
 
-@histo_cut.register(DataArray)
+@histo_cut.register(xr.DataArray)
 def _histo_cut_xarray(obj, **kwargs):
     """Histogram based clutter identification.
 
@@ -507,7 +508,7 @@ def _histo_cut_xarray(obj, **kwargs):
 
     Parameters
     ----------
-    obj : :py:class:`xarray:xarray.Dataset`
+    obj : :py:class:`xarray:xarray.DataArray`
         spatial array containing rain accumulation
 
     Keyword Arguments
@@ -519,7 +520,7 @@ def _histo_cut_xarray(obj, **kwargs):
 
     Returns
     -------
-    output : :py:class:`xarray:xarray.Dataset`
+    output : :py:class:`xarray:xarray.DataArray`
         uint8 array with pixels identified as clutter set to 1 and shadings set to 2.
         Remaining pixels set to 0. Users strictly relying on a boolean mask might have
         to explicitely cast to boolean (adding `.astype(np.bool)` on the return).
@@ -530,7 +531,7 @@ def _histo_cut_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_histo_cut_example.ipynb`.
     """
 
-    out = apply_ufunc(
+    out = xr.apply_ufunc(
         histo_cut,
         obj,
         input_core_dims=[["azimuth", "range"]],
@@ -760,14 +761,7 @@ def classify_echo_fuzzy(dat, weights=None, trpz=None, thresh=0.5):
     return np.where(q < thresh, True, False), nan_mask
 
 
-def _classify_echo_fuzzy_wrapper(*args, **kwargs):
-    mom = ["rho", "phi", "ref", "dop", "zdr", "map"][:len(args)]
-    dat = {name: value for name, value in zip(mom, args)}
-    out, mask = classify_echo_fuzzy(dat, **kwargs)
-    return out, mask
-
-
-@classify_echo_fuzzy.register(Dataset)
+@classify_echo_fuzzy.register(xr.Dataset)
 def _classify_echo_fuzzy_xarray(obj, dat, **kwargs):
     """Fuzzy echo classification and clutter identification based on polarimetric moments.
 
@@ -846,10 +840,17 @@ def _classify_echo_fuzzy_xarray(obj, dat, **kwargs):
     :func:`~wradlib.dp.depolarization` - depolarization ratio
 
     """
+
+    def _classify_echo_fuzzy_wrapper(*args, **kwargs):
+        mom = ["rho", "phi", "ref", "dop", "zdr", "map"][: len(args)]
+        dat = {name: value for name, value in zip(mom, args)}
+        out, mask = classify_echo_fuzzy(dat, **kwargs)
+        return out, mask
+
     mom = ["rho", "phi", "ref", "dop", "zdr", "map", "rho2", "dpr", "cpa"]
     args = [obj[dat[m]] for m in mom if m in dat]
     input_core_dims = [["azimuth", "range"]] * len(dat)
-    out, mask = apply_ufunc(
+    out, mask = xr.apply_ufunc(
         _classify_echo_fuzzy_wrapper,
         *args,
         input_core_dims=input_core_dims,
@@ -1003,8 +1004,8 @@ def filter_window_distance(img, rscale, fsize=1500, tr1=7):
     return similar
 
 
-@filter_window_distance.register(Dataset)
-@filter_window_distance.register(DataArray)
+@filter_window_distance.register(xr.Dataset)
+@filter_window_distance.register(xr.DataArray)
 def _filter_window_distance_xarray(obj, **kwargs):
     """2d filter looking for large reflectivity gradients.
 
@@ -1014,7 +1015,7 @@ def _filter_window_distance_xarray(obj, **kwargs):
 
     Parameters
     ----------
-    obj : :py:class:`xarray:xarray.DataArray`
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
         2d polar data to which the filter is to be applied
 
     Keyword Arguments
@@ -1026,7 +1027,7 @@ def _filter_window_distance_xarray(obj, **kwargs):
 
     Returns
     -------
-    output : :py:class:`xarray:xarray.DataArray`
+    output : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
         an array with the same shape as ``img``, containing the
         filter's results.
 
@@ -1037,7 +1038,15 @@ def _filter_window_distance_xarray(obj, **kwargs):
     :func:`~wradlib.clutter.filter_gabella_b` - filter using a echo area
     """
     rscale = obj.range.diff("range").median()
-    out = apply_ufunc(
+    if isinstance(obj, xr.Dataset):
+        dims = {"azimuth", "range"}
+        keep = xr.Dataset(
+            {k: v for k, v in obj.data_vars.items() if set(v.dims) & dims != dims}
+        )
+        obj = xr.Dataset(
+            {k: v for k, v in obj.data_vars.items() if set(v.dims) & dims == dims}
+        )
+    out = xr.apply_ufunc(
         filter_window_distance,
         obj,
         rscale.values,
@@ -1047,7 +1056,10 @@ def _filter_window_distance_xarray(obj, **kwargs):
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
-    out.name = "filter_window_distance"
+    if isinstance(obj, xr.DataArray):
+        out.name = "filter_window_distance"
+    else:
+        out = xr.merge([out, keep])
     return out
 
 

@@ -31,8 +31,10 @@ from .xarray import *
 from wradlib import util
 
 
-class GeorefMethods(util.XarrayMethods, MiscMethods, PolarMethods, ProjectionMethods):
-    """wradlib xarray SubAccessor methods for DualPol."""
+class GeorefMethods(
+    util.XarrayMethods, GeorefMiscMethods, GeorefPolarMethods, GeorefProjectionMethods
+):
+    """wradlib xarray SubAccessor methods for Georef."""
 
 
 __all__ = [s for s in dir() if not s.startswith("_")]

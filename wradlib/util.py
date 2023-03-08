@@ -28,6 +28,7 @@ __all__ = [
     "import_optional",
     "vertical_interpolate_volume",
     "cross_section_ppi",
+    "UtilMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
@@ -36,6 +37,7 @@ import datetime as dt
 import importlib
 import inspect
 import os
+from functools import singledispatch
 
 import numpy as np
 import xarray as xr
@@ -781,6 +783,7 @@ def _lanczos_differentiator(winlen):
     return np.r_[f[::-1], [0], -f]
 
 
+@singledispatch
 def derivate(data, winlen=7, method="lanczos_conv", skipna=False, **kwargs):
     """Calculates derivative of data using window of length winlen.
 
@@ -917,6 +920,77 @@ lanczos-low-noise-differentiators/>`_.
     return out.reshape(shape)
 
 
+@derivate.register(xr.DataArray)
+def _derivate_xarray(obj, **kwargs):
+    """Calculates derivative of data using window of length winlen.
+
+    In normal operation the method ('lanczos_conv') uses convolution
+    to estimate the derivative using Low-noise Lanczos differentiators.
+    The equivalent method ('lanczos_dot') uses dot-vector sum product.
+
+    For further reading please see `Differentiation by integration using \
+    orthogonal polynomials, a survey <https://arxiv.org/pdf/1102.5219>`_ \
+    and `Low-noise Lanczos differentiators \
+    <http://www.holoborodko.com/pavel/numerical-methods/numerical-derivative/\
+lanczos-low-noise-differentiators/>`_.
+
+    The results are very similar to the moving window linear
+    regression methods (`cov`, `matrix_inv` and `lstsq`), which are slower than
+    the former (in order of appearance).
+
+    All methods will return NaNs in case at least one value in the moving
+    window is NaN.
+
+    If `skipna=True` the locations of NaN results are treated by using local
+    linear regression by method2 (default to `cov_nan`) where enough valid
+    neighbouring data is available.
+
+    Before applying the actual derivation calculation the data is padded with
+    `mode='reflect'` by default along the derivation dimension. Padding can be
+    parametrized using kwargs.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray`
+        input array
+
+    Keyword Arguments
+    -----------------
+    winlen : int
+        Width of the derivation window .
+    method : str
+        Defaults to 'lanczos_conv'. Can take one of 'lanczos_dot', 'lstsq',
+        'cov', 'cov_nan', 'matrix_inv'.
+    skipna : bool
+        Defaults to False. If True, treat NaN results by applying method2.
+    method2 : str
+        Defaults to '_nan' methods.
+    min_periods : int
+        Minimum number of valid values in moving window for linear regression.
+        Defaults to winlen // 2 + 1.
+    pad_mode : str
+        Defaults to `reflect`. See :func:`numpy:numpy.pad`.
+    pad_kwargs : dict
+        Keyword arguments for padding, see :func:`numpy:numpy.pad`
+
+    Returns
+    -------
+    out : :py:class:`xarray:xarray.DataArray`
+        array of derivates
+    """
+    out = xr.apply_ufunc(
+        derivate,
+        obj,
+        input_core_dims=[["azimuth", "range"]],
+        output_core_dims=[["azimuth", "range"]],
+        dask="parallelized",
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.attrs = obj.attrs
+    return out
+
+
+@singledispatch
 def despeckle(data, n=3, copy=False):
     """Remove floating pixels in between NaNs in a multi-dimensional array.
 
@@ -955,6 +1029,39 @@ def despeckle(data, n=3, copy=False):
     return data
 
 
+@despeckle.register(xr.DataArray)
+def _despeckle_xarray(obj, **kwargs):
+    """Remove floating pixels in between NaNs in a multi-dimensional array.
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray`
+        input array
+
+    Keyword Arguments
+    -----------------
+    n : int
+        (must be either 3 or 5, 3 by default),
+        Width of the window in which we check for speckle
+
+    Returns
+    -------
+    out : :py:class:`xarray:xarray.DataArray`
+        output array
+    """
+    out = xr.apply_ufunc(
+        despeckle,
+        obj,
+        input_core_dims=[["azimuth", "range"]],
+        output_core_dims=[["azimuth", "range"]],
+        kwargs=kwargs,
+        dask="parallelized",
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.attrs = obj.attrs
+    return out
+
+
 def show_versions(file=None):
     import sys
 
@@ -980,10 +1087,6 @@ def _open_file(name):
 
 def has_import(module):
     return not isinstance(module, OptionalModuleStub)
-
-
-if __name__ == "__main__":
-    print("wradlib: Calling module <util> as main...")
 
 
 def vertical_interpolate_volume(vol, elevs=None, method="nearest"):
@@ -1342,3 +1445,25 @@ class XarrayMethods:
         ):
             return getattr(self._obj, item)
         return self.__class__(getattr(self._obj, item))
+
+
+class UtilMethods(XarrayMethods):
+    """wradlib xarray SubAccessor methods for Util."""
+
+    @docstring(_despeckle_xarray)
+    def despeckle(self, *args, **kwargs):
+        if not isinstance(self, UtilMethods):
+            return despeckle(self, *args, **kwargs)
+        else:
+            return despeckle(self._obj, *args, **kwargs)
+
+    @docstring(_derivate_xarray)
+    def derivate(self, *args, **kwargs):
+        if not isinstance(self, UtilMethods):
+            return derivate(self, *args, **kwargs)
+        else:
+            return derivate(self._obj, *args, **kwargs)
+
+
+if __name__ == "__main__":
+    print("wradlib: Calling module <util> as main...")

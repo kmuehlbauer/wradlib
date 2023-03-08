@@ -14,47 +14,44 @@ from . import requires_data, requires_gdal, requires_h5py, requires_netcdf
 # -------------------------------------------------------------------------------
 # testing the filter helper function
 # -------------------------------------------------------------------------------
-class TestClutter:
+def test_filter_gabella_a():
+    pass
+
+
+def test_filter_window_distance():
     img = np.zeros((36, 10), dtype=np.float32)
     img[2, 2] = 10  # isolated pixel
     img[5, 6:8] = 10  # line
     img[20, :] = 5  # spike
     img[9:12, 4:7] = 11  # precip field
-
-    def test_filter_gabella_a(self):
-        pass
-
-    def test_filter_window_distance(self):
-        self.img[15:17, 5:7] = np.nan  # nans
-        cl = self.img.copy()
-        cl[self.img > 0] = True
-        cl[self.img == 11] = False
-        cl[np.isnan(self.img)] = False
-        np.set_printoptions(precision=2)
-        rscale = 250
-        similar = clutter.filter_window_distance(self.img, rscale, fsize=300, tr1=4)
-        result = similar < 0.3
-        np.set_printoptions(precision=3)
-        assert (result == cl).all()
+    img[15:17, 5:7] = np.nan  # nans
+    cl = img.copy()
+    cl[img > 0] = True
+    cl[img == 11] = False
+    cl[np.isnan(img)] = False
+    np.set_printoptions(precision=2)
+    rscale = 250
+    similar = clutter.filter_window_distance(img, rscale, fsize=300, tr1=4)
+    result = similar < 0.3
+    np.set_printoptions(precision=3)
+    assert (result == cl).all()
 
 
-class TestFilterGabella:
-    @requires_data
-    def test_filter_gabella(self):
-        filename = util.get_wradlib_data_file("misc/polar_dBZ_fbg.gz")
-        data = np.loadtxt(filename)
-        clutter.filter_gabella(data, wsize=5, thrsnorain=0.0, tr1=6.0, n_p=8, tr2=1.3)
+@requires_data
+def test_filter_gabella():
+    filename = util.get_wradlib_data_file("misc/polar_dBZ_fbg.gz")
+    data = np.loadtxt(filename)
+    clutter.filter_gabella(data, wsize=5, thrsnorain=0.0, tr1=6.0, n_p=8, tr2=1.3)
 
 
-class TestHistoCut:
-    @requires_data
-    def test_histo_cut_test(self):
-        filename = util.get_wradlib_data_file("misc/annual_rainfall_fbg.gz")
-        yearsum = np.loadtxt(filename)
-        clutter.histo_cut(yearsum)
+@requires_data
+def test_histo_cut():
+    filename = util.get_wradlib_data_file("misc/annual_rainfall_fbg.gz")
+    yearsum = np.loadtxt(filename)
+    clutter.histo_cut(yearsum)
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture()
 def fuzzy_data():
     rhofile = util.get_wradlib_data_file("netcdf/TAG-20120801" "-140046-02-R.nc")
     phifile = util.get_wradlib_data_file("netcdf/TAG-20120801" "-140046-02-P.nc")
@@ -73,23 +70,22 @@ def fuzzy_data():
     yield dat
 
 
-class TestClassifyEchoFuzzyTest:
-    @requires_data
-    @requires_netcdf
-    @requires_h5py
-    def test_classify_echo_fuzzy(self, fuzzy_data):
-        weights = {
-            "zdr": 0.4,
-            "rho": 0.4,
-            "rho2": 0.4,
-            "phi": 0.1,
-            "dop": 0.1,
-            "map": 0.5,
-        }
-        clutter.classify_echo_fuzzy(fuzzy_data, weights=weights, thresh=0.5)
+@requires_data
+@requires_netcdf
+@requires_h5py
+def test_classify_echo_fuzzy(fuzzy_data):
+    weights = {
+        "zdr": 0.4,
+        "rho": 0.4,
+        "rho2": 0.4,
+        "phi": 0.1,
+        "dop": 0.1,
+        "map": 0.5,
+    }
+    clutter.classify_echo_fuzzy(fuzzy_data, weights=weights, thresh=0.5)
 
 
-@pytest.fixture(scope="class")
+@pytest.fixture()
 def cloudtype_data():
     # read the radar volume scan
     filename = "hdf5/20130429043000.rad.bewid.pvol.dbzh.scan1.hdf"
@@ -139,20 +135,19 @@ def cloudtype_data():
     yield dat
 
 
-class TestFilterCloudtype:
-    @requires_data
-    @requires_gdal
-    @requires_h5py
-    def test_filter_cloudtype(self, cloudtype_data):
-        val = cloudtype_data["val"]
-        val_sat = cloudtype_data["val_sat"]
-        rscale = cloudtype_data["rscale"]
-        error = cloudtype_data["error"]
-        nonmet = clutter.filter_cloudtype(val, val_sat, scale=rscale, smoothing=error)
-        nclutter = np.sum(nonmet)
-        assert nclutter == 8141
-        nonmet = clutter.filter_cloudtype(
-            val, val_sat, scale=rscale, smoothing=error, low=True
-        )
-        nclutter = np.sum(nonmet)
-        assert nclutter == 17856
+@requires_data
+@requires_gdal
+@requires_h5py
+def test_filter_cloudtype(cloudtype_data):
+    val = cloudtype_data["val"]
+    val_sat = cloudtype_data["val_sat"]
+    rscale = cloudtype_data["rscale"]
+    error = cloudtype_data["error"]
+    nonmet = clutter.filter_cloudtype(val, val_sat, scale=rscale, smoothing=error)
+    nclutter = np.sum(nonmet)
+    assert nclutter == 8141
+    nonmet = clutter.filter_cloudtype(
+        val, val_sat, scale=rscale, smoothing=error, low=True
+    )
+    nclutter = np.sum(nonmet)
+    assert nclutter == 17856
