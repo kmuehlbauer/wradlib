@@ -143,9 +143,9 @@ def _filter_gabella_a_xarray(obj, **kwargs):
 
     See Also
     --------
-    :func:`~wradlib.clutter.filter_gabella` - the complete filter
+    :func:`~wradlib.classify.filter_gabella` - the complete filter
 
-    :func:`~wradlib.clutter.filter_gabella_b` - the second part of the filter
+    :func:`~wradlib.classify.filter_gabella_b` - the second part of the filter
 
     Examples
     --------
@@ -311,7 +311,7 @@ def filter_gabella(
         False takes nans into acount
     radial : bool
         True to use radial information only in
-        :func:`~wradlib.clutter.filter_gabella_a`.
+        :func:`~wradlib.classify.filter_gabella_a`.
     cartesian : bool
         True if cartesian data are used, polar assumed if False.
 
@@ -322,9 +322,9 @@ def filter_gabella(
 
     See Also
     --------
-    :func:`~wradlib.clutter.filter_gabella_a` - the first part of the filter
+    :func:`~wradlib.classify.filter_gabella_a` - the first part of the filter
 
-    :func:`~wradlib.clutter.filter_gabella_b` - the second part of the filter
+    :func:`~wradlib.classify.filter_gabella_b` - the second part of the filter
 
     Examples
     --------
@@ -373,7 +373,7 @@ def _filter_gabella_xarray(obj, **kwargs):
         False takes nans into acount
     radial : bool
         True to use radial information only in
-        :func:`~wradlib.clutter.filter_gabella_a`.
+        :func:`~wradlib.classify.filter_gabella_a`.
     cartesian : bool
         True if cartesian data are used, polar assumed if False.
 
@@ -384,9 +384,9 @@ def _filter_gabella_xarray(obj, **kwargs):
 
     See Also
     --------
-    :func:`~wradlib.clutter.filter_gabella_a` - the first part of the filter
+    :func:`~wradlib.classify.filter_gabella_a` - the first part of the filter
 
-    :func:`~wradlib.clutter.filter_gabella_b` - the second part of the filter
+    :func:`~wradlib.classify.filter_gabella_b` - the second part of the filter
 
     Examples
     --------
@@ -980,9 +980,9 @@ def filter_window_distance(img, rscale, fsize=1500, tr1=7):
 
     See Also
     --------
-    :func:`~wradlib.clutter.filter_gabella_a` - Original version of the filter
+    :func:`~wradlib.classify.filter_gabella_a` - Original version of the filter
 
-    :func:`~wradlib.clutter.filter_gabella_b` - filter using a echo area
+    :func:`~wradlib.classify.filter_gabella_b` - filter using a echo area
     """
     ascale = 2 * np.pi / img.shape[0]
     count = np.ones(img.shape, dtype=int)
@@ -1054,9 +1054,9 @@ def _filter_window_distance_xarray(obj, **kwargs):
 
     See Also
     --------
-    :func:`~wradlib.clutter.filter_gabella_a` - Original version of the filter
+    :func:`~wradlib.classify.filter_gabella_a` - Original version of the filter
 
-    :func:`~wradlib.clutter.filter_gabella_b` - filter using a echo area
+    :func:`~wradlib.classify.filter_gabella_b` - filter using a echo area
     """
     rscale = obj.range.diff("range").median()
     if isinstance(obj, xr.Dataset):
