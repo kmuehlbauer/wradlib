@@ -92,6 +92,7 @@ class CartesianVolume:
         self,
         polcoords,
         gridcoords,
+        *,
         gridshape=None,
         maxrange=None,
         minelev=None,
@@ -116,7 +117,9 @@ class CartesianVolume:
             ]
         ).reshape((-1, 3))
         # Set the mask which masks the blind voxels of the 3-D volume grid
-        self.mask = self._get_mask(gridcoords, polcoords, maxrange, minelev, maxelev)
+        self.mask = self._get_mask(
+            gridcoords, polcoords, maxrange=maxrange, minelev=minelev, maxelev=maxelev
+        )
         # create an instance of the Interpolation class
         self.trgix = np.where(np.logical_not(self.mask))
         self.ip = ipclass(src=polcoords, trg=gridcoords[self.trgix], **ipargs)
@@ -146,6 +149,7 @@ class CartesianVolume:
         self,
         gridcoords,
         polcoords=None,
+        *,
         maxrange=None,
         minelev=None,
         maxelev=None,
@@ -239,7 +243,7 @@ class CAPPI(CartesianVolume):
         >>> # create Cartesian coordinates corresponding the location of the
         >>> # polar volume bins
         >>> polxyz  = wradlib.vpr.volcoords_from_polar(sitecoords, elevs,
-        ...                                            azims, ranges, proj)  # noqa
+        ...                                            azims, ranges, proj=proj)  # noqa
         >>> poldata = wradlib.vpr.synthetic_polar_volume(polxyz)
         >>> # this is the shape of our polar volume
         >>> polshape = (len(elevs),len(azims),len(ranges))
@@ -398,7 +402,7 @@ def blindspots(center, gridcoords, minelev, maxelev, maxrange):
     return below, above, out_of_range
 
 
-def volcoords_from_polar(sitecoords, elevs, azimuths, ranges, proj=None):
+def volcoords_from_polar(sitecoords, elevs, azimuths, ranges, *, proj=None):
     """Create Cartesian coordinates for regular polar volumes
 
     Parameters
@@ -437,7 +441,7 @@ def volcoords_from_polar(sitecoords, elevs, azimuths, ranges, proj=None):
     return coords
 
 
-def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, proj=None):
+def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, *, proj=None):
     """Create Cartesian coordinates for polar volumes with irregular \
     sweep specifications
 
@@ -511,7 +515,7 @@ def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, proj=Non
             onerange4all = False
     if oneaz4all and onerange4all:
         # this is the simple way
-        return volcoords_from_polar(sitecoords, elevs, azimuths, ranges, proj)
+        return volcoords_from_polar(sitecoords, elevs, azimuths, ranges, proj=proj)
     # No simply way, so we need to construct the coordinates arrays for
     # each elevation angle
     # but first adapt input arrays to this task
@@ -535,7 +539,9 @@ def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, proj=Non
     return coords
 
 
-def make_3d_grid(sitecoords, proj, maxrange, maxalt, horiz_res, vert_res, minalt=0.0):
+def make_3d_grid(
+    sitecoords, proj, maxrange, maxalt, horiz_res, vert_res, *, minalt=0.0
+):
     """Generate Cartesian coordinates for a regular 3-D grid based on \
     radar specs.
 
@@ -600,7 +606,7 @@ def synthetic_polar_volume(coords):
     return out
 
 
-def norm_vpr_stats(volume, reference_layer, stat=None, **kwargs):
+def norm_vpr_stats(volume, reference_layer, *, stat=None, **kwargs):
     """Returns the average normalised vertical profile of a volume or \
     any other desired statistics
 

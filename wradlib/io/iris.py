@@ -373,6 +373,7 @@ class IrisCartesianProductFile(xiris.IrisRecordFile):
 
 def read_iris(
     filename,
+    *,
     loaddata=True,
     rawdata=False,
     debug=False,

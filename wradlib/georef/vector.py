@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 # -*- coding: UTF-8 -*-
-# Copyright (c) 2011-2021, wradlib developers.
+# Copyright (c) 2011-2023, wradlib developers.
 # Distributed under the MIT License. See LICENSE.txt for more info.
 
 """
@@ -183,7 +183,7 @@ def get_vector_coordinates(layer, **kwargs):
     return shp, attrs
 
 
-def ogr_reproject_layer(src_lyr, dst_lyr, dst_srs, src_srs=None):
+def ogr_reproject_layer(src_lyr, dst_lyr, dst_srs, *, src_srs=None):
     """Reproject src_lyr to dst_lyr.
 
     Creates one OGR.Layer with given name in given gdal.Dataset object
@@ -241,7 +241,7 @@ def ogr_reproject_layer(src_lyr, dst_lyr, dst_srs, src_srs=None):
     return dst_lyr
 
 
-def ogr_create_layer(ds, name, srs=None, geom_type=None, fields=None):
+def ogr_create_layer(ds, name, *, srs=None, geom_type=None, fields=None):
     """Creates OGR.Layer objects in gdal.Dataset object.
 
     Creates one OGR.Layer with given name in given gdal.Dataset object
@@ -277,7 +277,7 @@ def ogr_create_layer(ds, name, srs=None, geom_type=None, fields=None):
     return lyr
 
 
-def ogr_copy_layer(src_ds, index, dst_ds, reset=True):
+def ogr_copy_layer(src_ds, index, dst_ds, *, reset=True):
     """Copy OGR.Layer object.
 
     Copy OGR.Layer object from src_ds gdal.Dataset to dst_ds gdal.Dataset
@@ -303,7 +303,7 @@ def ogr_copy_layer(src_ds, index, dst_ds, reset=True):
     dst_ds.CopyLayer(src_lyr, src_lyr.GetName())
 
 
-def ogr_copy_layer_by_name(src_ds, name, dst_ds, reset=True):
+def ogr_copy_layer_by_name(src_ds, name, dst_ds, *, reset=True):
     """Copy OGR.Layer object.
 
     Copy OGR.Layer object from src_ds gdal.Dataset to dst_ds gdal.Dataset
@@ -331,7 +331,7 @@ def ogr_copy_layer_by_name(src_ds, name, dst_ds, reset=True):
     dst_ds.CopyLayer(src_lyr, src_lyr.GetName())
 
 
-def ogr_add_feature(ds, src, name=None):
+def ogr_add_feature(ds, src, *, name=None):
     """Creates OGR.Feature objects in OGR.Layer object.
 
     OGR.Features are built from numpy src points or polygons.

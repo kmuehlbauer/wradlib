@@ -4,6 +4,8 @@
 
 For {{wradlib}} 2.0 there have been quite some deprecations and additions. Most of the changes have been announced over the latest wradlib 1 versions. Nevertheless, to make a clean cut it was neccessary to change and remove code and functionality which was not yet being officially deprecated.
 
+The function signatures have been revisited with regard to [PEP570](https://peps.python.org/pep-0570/). Please look out for changes in the parameter-list, there might be changes on parameters being positional only, positional and keyword or keyword-only.
+
 The early experiments with {{xarray}} reading capabilities (deprecated) have been removed, the more mature {{xarray}} backend code has been ported to {{xradar}}-package from where {{wradlib}} is importing it.
 
 There have also been quite some changes to the visualization code. For several years now, the `plot_ppi`/`plot_rhi`-functions have converted the provided arguments to an

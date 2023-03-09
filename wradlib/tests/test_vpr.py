@@ -28,7 +28,7 @@ def help_data():
 @requires_gdal
 def test_volcoords_from_polar(help_data):
     coords = vpr.volcoords_from_polar(
-        help_data.site, help_data.el, help_data.az, help_data.r, help_data.proj
+        help_data.site, help_data.el, help_data.az, help_data.r, proj=help_data.proj
     )
     assert coords.shape == (9000, 3)
 
@@ -37,7 +37,7 @@ def test_volcoords_from_polar(help_data):
 def test_volcoords_from_polar_irregular(help_data):
     # oneazforall, onerange4all, one elev
     coords = vpr.volcoords_from_polar_irregular(
-        help_data.site, [help_data.el], help_data.az, help_data.r, help_data.proj
+        help_data.site, [help_data.el], help_data.az, help_data.r, proj=help_data.proj
     )
     assert coords.shape == (9000, 3)
 
@@ -47,7 +47,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         help_data.az,
         help_data.r,
-        help_data.proj,
+        proj=help_data.proj,
     )
     assert coords.shape == (18000, 3)
 
@@ -57,7 +57,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         [help_data.az, help_data.az],
         help_data.r,
-        help_data.proj,
+        proj=help_data.proj,
     )
     assert coords.shape == (18000, 3)
 
@@ -67,7 +67,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         help_data.az,
         [help_data.r, help_data.r],
-        help_data.proj,
+        proj=help_data.proj,
     )
     assert coords.shape == (18000, 3)
 
@@ -82,7 +82,9 @@ def test_synthetic_polar_volume(help_data):
     for i, vals in enumerate(zip(nbins, rscale, elev)):
         az = np.arange(0.0, 360.0, 2.0)
         r = np.arange(0, vals[0] * vals[1], vals[1])
-        xyz_ = vpr.volcoords_from_polar(help_data.site, vals[2], az, r, help_data.proj)
+        xyz_ = vpr.volcoords_from_polar(
+            help_data.site, vals[2], az, r, proj=help_data.proj
+        )
         xyz = np.vstack((xyz, xyz_))
 
     vol = vpr.synthetic_polar_volume(xyz)
@@ -124,7 +126,7 @@ def cart_data():
         maxalt = 8000.0
         horiz_res = 4000.0
         vert_res = 1000.0
-        xyz = vpr.volcoords_from_polar(site, elev, az, r, proj)
+        xyz = vpr.volcoords_from_polar(site, elev, az, r, proj=proj)
         data = vpr.synthetic_polar_volume(xyz)
         trgxyz, trgshape = vpr.make_3d_grid(
             site, proj, maxrange, maxalt, horiz_res, vert_res
@@ -138,10 +140,10 @@ def test_CartesianVolume(cart_data):
     gridder = vpr.CartesianVolume(
         cart_data.xyz,
         cart_data.trgxyz,
-        cart_data.trgshape,
-        cart_data.maxrange,
-        cart_data.minelev,
-        cart_data.maxelev,
+        gridshape=cart_data.trgshape,
+        maxrange=cart_data.maxrange,
+        minelev=cart_data.minelev,
+        maxelev=cart_data.maxelev,
     )
     out = gridder(cart_data.data)
     assert out.shape == (6084,)
@@ -153,10 +155,10 @@ def test_CAPPI(cart_data):
     gridder = vpr.CAPPI(
         cart_data.xyz,
         cart_data.trgxyz,
-        cart_data.trgshape,
-        cart_data.maxrange,
-        cart_data.minelev,
-        cart_data.maxelev,
+        gridshape=cart_data.trgshape,
+        maxrange=cart_data.maxrange,
+        minelev=cart_data.minelev,
+        maxelev=cart_data.maxelev,
     )
     out = gridder(cart_data.data)
     assert out.shape == (6084,)
@@ -169,10 +171,10 @@ def test_PseudoCAPPI(cart_data):
     gridder = vpr.PseudoCAPPI(
         cart_data.xyz,
         cart_data.trgxyz,
-        cart_data.trgshape,
-        cart_data.maxrange,
-        cart_data.minelev,
-        cart_data.maxelev,
+        gridshape=cart_data.trgshape,
+        maxrange=cart_data.maxrange,
+        minelev=cart_data.minelev,
+        maxelev=cart_data.maxelev,
     )
     out = gridder(cart_data.data)
     assert out.shape == (6084,)

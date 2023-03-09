@@ -109,7 +109,7 @@ def data_base():
         src = np.array([box0, box1])
         trg = np.array([box3, box4])
         dst = np.array([[box5], [box6]])
-        zdb = zonalstats.ZonalDataBase(src, trg, srs=proj)
+        zdb = zonalstats.ZonalDataBase(src, trg=trg, srs=proj)
         f = tempfile.NamedTemporaryFile(mode="w+b").name
         zdb.dump_vector(f)
 
@@ -118,20 +118,20 @@ def data_base():
 
 @requires_gdal
 def test_ZonalDataBase__init__(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     assert isinstance(zdb.src, io.VectorSource)
     assert isinstance(zdb.trg, io.VectorSource)
     assert isinstance(zdb.dst, io.VectorSource)
     assert zdb._count_intersections == 2
     zd = io.VectorSource(data_base.src, name="src", srs=data_base.proj)
-    zdb = zonalstats.ZonalDataBase(zd, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(zd, trg=data_base.trg, srs=data_base.proj)
     assert isinstance(zdb.src, io.VectorSource)
     assert isinstance(zdb.trg, io.VectorSource)
     assert isinstance(zdb.dst, io.VectorSource)
     assert zdb._count_intersections == 2
     zd1 = io.VectorSource(data_base.src, name="src", srs=data_base.proj)
     zd2 = io.VectorSource(data_base.trg, name="trg", srs=data_base.proj)
-    zdb = zonalstats.ZonalDataBase(zd1, zd2, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(zd1, trg=zd2, srs=data_base.proj)
     assert isinstance(zdb.src, io.VectorSource)
     assert isinstance(zdb.trg, io.VectorSource)
     assert isinstance(zdb.dst, io.VectorSource)
@@ -140,40 +140,40 @@ def test_ZonalDataBase__init__(data_base):
 
 @requires_gdal
 def test_ZonalDataBase_count_intersections(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     assert zdb.count_intersections == 2
 
 
 @requires_gdal
 def test_ZonalDataBase_srs(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     assert zdb.srs == data_base.proj
 
 
 @requires_gdal
 def test_ZonalDataBase_isecs(data_base):
     # todo: Normalize Polygons before comparison.
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     np.testing.assert_equal(zdb.isecs, data_base.dst)
 
 
 @requires_gdal
 def test_ZonalDataBase_get_isec(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     np.testing.assert_equal(zdb.get_isec(0), [data_base.box5])
     np.testing.assert_equal(zdb.get_isec(1), [data_base.box6])
 
 
 @requires_gdal
 def test_ZonalDataBase_get_source_index(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     assert zdb.get_source_index(0) == 0
     assert zdb.get_source_index(1) == 1
 
 
 @requires_gdal
 def test_ZonalDataBase_dump_vector(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     f = tempfile.NamedTemporaryFile(mode="w+b").name
     zdb.dump_vector(f)
 
@@ -185,14 +185,16 @@ def test_ZonalDataBase_load_vector(data_base):
 
 @requires_gdal
 def test_ZonalDataBase__get_intersection(data_base):
-    zdb = zonalstats.ZonalDataBase(data_base.src, data_base.trg, srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(data_base.src, trg=data_base.trg, srs=data_base.proj)
     with pytest.raises(TypeError):
         zdb._get_intersection()
     np.testing.assert_equal(zdb._get_intersection(trg=data_base.box3), [data_base.box5])
     np.testing.assert_equal(zdb._get_intersection(idx=0), [data_base.box5])
     with pytest.raises(TypeError):
         zdb._get_intersection(idx=2)
-    zdb = zonalstats.ZonalDataBase(data_base.src, [data_base.box7], srs=data_base.proj)
+    zdb = zonalstats.ZonalDataBase(
+        data_base.src, trg=[data_base.box7], srs=data_base.proj
+    )
     zdb.trg = None
     with pytest.raises(TypeError):
         zdb._get_intersection(idx=0)
@@ -281,7 +283,7 @@ def data_poly():
         src = np.array([box0, box1])
         trg = np.array([box3, box4])
         dst = np.array([[box5], [box6]])
-        zdb = zonalstats.ZonalDataBase(src, trg, srs=proj)
+        zdb = zonalstats.ZonalDataBase(src, trg=trg, srs=proj)
         f = tempfile.NamedTemporaryFile(mode="w+b").name
         zdb.dump_vector(f)
 
@@ -290,7 +292,7 @@ def data_poly():
 
 @requires_gdal
 def test_ZonalDataPoly__get_idx_weights(data_poly):
-    zdp = zonalstats.ZonalDataPoly(data_poly.src, data_poly.trg, srs=data_poly.proj)
+    zdp = zonalstats.ZonalDataPoly(data_poly.src, trg=data_poly.trg, srs=data_poly.proj)
     assert zdp._get_idx_weights() == (
         [np.array([0]), np.array([1])],
         [np.array([25000000.0]), np.array([25000000.0])],
@@ -364,7 +366,7 @@ def data_point():
         src = np.array([point0, point1])
         trg = np.array([box3, box4])
         dst = np.array([[point0], [point1]])
-        zdb = zonalstats.ZonalDataBase(src, trg, srs=proj)
+        zdb = zonalstats.ZonalDataBase(src, trg=trg, srs=proj)
         f = tempfile.NamedTemporaryFile(mode="w+b").name
         zdb.dump_vector(f)
 
@@ -373,7 +375,9 @@ def data_point():
 
 @requires_gdal
 def test_ZonalDataPoint__get_idx_weights(data_point):
-    zdp = zonalstats.ZonalDataPoint(data_point.src, data_point.trg, srs=data_point.proj)
+    zdp = zonalstats.ZonalDataPoint(
+        data_point.src, trg=data_point.trg, srs=data_point.proj
+    )
     assert zdp._get_idx_weights() == (
         [np.array([0]), np.array([1])],
         [np.array([1.0]), np.array([1.0])],
@@ -463,8 +467,8 @@ def stats_base():
         src = np.array([box0, box1])
         trg = np.array([box3, box4])
         dst = np.array([[box5], [box6]])
-        zdb = zonalstats.ZonalDataBase(src, trg, srs=proj)
-        zdp = zonalstats.ZonalDataPoly(src, trg, srs=proj)
+        zdb = zonalstats.ZonalDataBase(src, trg=trg, srs=proj)
+        zdp = zonalstats.ZonalDataPoly(src, trg=trg, srs=proj)
 
     yield Data
 
@@ -528,11 +532,11 @@ def zonal_data():
         proj_ll.ImportFromEPSG(4326)
 
         # create polar grid polygon vertices in lat,lon
-        coords = georef.spherical_to_polyvert(r, a, 0, (lon, lat), proj=proj_ll)
+        coords = georef.spherical_to_polyvert(r, a, 0, (lon, lat, 0), proj=proj_ll)
         radar_ll = coords[..., 0:2]
 
         # create polar grid centroids in lat,lon
-        coords = georef.spherical_to_centroids(r, a, 0, (lon, lat), proj=proj_ll)
+        coords = georef.spherical_to_centroids(r, a, 0, (lon, lat, 0), proj=proj_ll)
         radar_llc = coords[..., 0:2]
 
         # project ll grids to GK2
@@ -586,9 +590,9 @@ def zonal_data():
         radar_gkc = radar_gkc[mask, :]
         radar_gk = radar_gk[mask]
 
-        zdpoly = zonalstats.ZonalDataPoly(radar_gk, data, srs=proj_gk)
+        zdpoly = zonalstats.ZonalDataPoly(radar_gk, trg=data, srs=proj_gk)
         # zdpoly.dump_vector('test_zdpoly')
-        zdpoint = zonalstats.ZonalDataPoint(radar_gkc, data, srs=proj_gk)
+        zdpoint = zonalstats.ZonalDataPoint(radar_gkc, trg=data, srs=proj_gk)
         # zdpoint.dump_vector('test_zdpoint')
 
         isec_poly0 = np.array(
@@ -755,6 +759,6 @@ def test_get_clip_mask(npobj):
             [2600040.0, 5640000.0],
         ]
     )
-    mask = zonalstats.get_clip_mask(coords, npobj, proj_gk)
+    mask = zonalstats.get_clip_mask(coords, npobj, srs=proj_gk)
     out = np.array([True, True, True, False, False])
     np.testing.assert_array_equal(mask, out)

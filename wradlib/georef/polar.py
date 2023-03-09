@@ -41,7 +41,15 @@ osr = import_optional("osgeo.osr")
 
 @singledispatch
 def spherical_to_xyz(
-    r, phi, theta, sitecoords, re=None, ke=4.0 / 3.0, squeeze=False, strict_dims=False
+    r,
+    phi,
+    theta,
+    sitecoords,
+    *,
+    re=None,
+    ke=4.0 / 3.0,
+    squeeze=False,
+    strict_dims=False,
 ):
     """Transforms spherical coordinates (r, phi, theta) to cartesian
     coordinates (x, y, z) centered at sitecoords (aeqd).
@@ -59,15 +67,17 @@ def spherical_to_xyz(
     theta: :class:`numpy:numpy.ndarray`
         Contains the elevation angles in degree.
     sitecoords : sequence
-        the lon / lat coordinates of the radar location and its altitude
+        the lon / lat / alt coordinates of the radar location and its altitude
         a.m.s.l. (in meters)
-        if sitecoords is of length two, altitude is assumed to be zero
+
+    Keyword Arguments
+    -----------------
     re : float
-        earth's radius [m]
+        earth's radius [m], defaults to None (calculating from given latitude)
     ke : float
         adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths.
     squeeze : bool
         If True, returns squeezed array. Defaults to False.
@@ -83,11 +93,7 @@ def spherical_to_xyz(
         Destination Spatial Reference System (Projection).
         Defaults to wgs84 (epsg 4326).
     """
-    # if site altitude is present, use it, else assume it to be zero
-    try:
-        centalt = sitecoords[2]
-    except IndexError:
-        centalt = 0.0
+    centalt = sitecoords[2]
 
     # if no radius is given, get the approximate radius of the WGS84
     # ellipsoid for the site's latitude
@@ -137,8 +143,8 @@ def spherical_to_xyz(
     if theta.ndim and phi.ndim:
         theta = theta.reshape(theta.shape + (1,) * (dims - theta.ndim))
 
-    z = misc.bin_altitude(r, theta, centalt, re, ke=ke)
-    dist = misc.site_distance(r, theta, z, re, ke=ke)
+    z = misc.bin_altitude(r, theta, centalt, re=re, ke=ke)
+    dist = misc.site_distance(r, theta, z, re=re, ke=ke)
 
     if (not strict_dims) and phi.ndim and r.ndim and (r.shape[2] == phi.shape[1]):
         z = np.squeeze(z)
@@ -180,10 +186,12 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
 
     Keyword Arguments
     -----------------
+    re : float
+        earth's radius [m], defaults to None (calculating from given latitude)
     ke : float
         adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths.
 
     Returns
@@ -225,7 +233,7 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
 
 
 @singledispatch
-def spherical_to_proj(r, phi, theta, sitecoords, proj=None, re=None, ke=4.0 / 3.0):
+def spherical_to_proj(r, phi, theta, sitecoords, *, proj=None, re=None, ke=4.0 / 3.0):
     """Transforms spherical coordinates (r, phi, theta) to projected
     coordinates centered at sitecoords in given projection.
 
@@ -245,6 +253,9 @@ def spherical_to_proj(r, phi, theta, sitecoords, proj=None, re=None, ke=4.0 / 3.
         the lon / lat coordinates of the radar location and its altitude
         a.m.s.l. (in meters)
         if sitecoords is of length two, altitude is assumed to be zero
+
+    Keyword Arguments
+    -----------------
     proj : :py:class:`gdal:osgeo.osr.SpatialReference`
         Destination Spatial Reference System (Projection).
         Defaults to wgs84 (epsg 4326).
@@ -271,7 +282,7 @@ def spherical_to_proj(r, phi, theta, sitecoords, proj=None, re=None, ke=4.0 / 3.
     >>> r  = np.array([0.,   0., 111., 111., 111., 111.,])*1000
     >>> az = np.array([0., 180.,   0.,  90., 180., 270.,])
     >>> th = np.array([0.,   0.,   0.,   0.,   0.,  0.5,])
-    >>> csite = (9.0, 48.0)
+    >>> csite = (9.0, 48.0, 0)
     >>> coords = spherical_to_proj(r, az, th, csite)
     >>> for coord in coords:
     ...     print( '{0:7.4f}, {1:7.4f}, {2:7.4f}'.format(*coord))
@@ -323,7 +334,7 @@ def _spherical_to_proj_xarray(obj, **kwargs):
     ke : float
         adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths.
 
     Returns
@@ -361,7 +372,7 @@ def _spherical_to_proj_xarray(obj, **kwargs):
     return out
 
 
-def centroid_to_polyvert(centroid, delta):
+def centroid_to_polyvert(centroid, delta, /):
     """Calculates the 2-D Polygon vertices necessary to form a rectangular
     polygon around the centroid's coordinates.
 
@@ -427,7 +438,7 @@ def centroid_to_polyvert(centroid, delta):
 
 
 @singledispatch
-def spherical_to_polyvert(r, phi, theta, sitecoords, proj=None):
+def spherical_to_polyvert(r, phi, theta, sitecoords, *, proj=None):
     """
     Generate 3-D polygon vertices directly from spherical coordinates
     (r, phi, theta).
@@ -592,7 +603,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
 
 
 @singledispatch
-def spherical_to_centroids(r, phi, theta, sitecoords, proj=None):
+def spherical_to_centroids(r, phi, theta, sitecoords, *, proj=None):
     """
     Generate 3-D centroids of the radar bins from the sperical
     coordinates (r, phi, theta).
@@ -726,7 +737,7 @@ def _spherical_to_centroids_xarray(obj, **kwargs):
     return out
 
 
-def _check_polar_coords(r, az):
+def _check_polar_coords(r, az, /):
     """
     Contains a lot of checks to make sure the polar coordinates are adequate.
 
@@ -824,7 +835,7 @@ def _get_azimuth_resolution(x):
     return res[0]
 
 
-def sweep_centroids(nrays, rscale, nbins, elangle):
+def sweep_centroids(nrays, rscale, nbins, elangle, /):
     """Construct sweep centroids native coordinates.
 
     Parameters
@@ -855,7 +866,7 @@ def sweep_centroids(nrays, rscale, nbins, elangle):
 
 
 def maximum_intensity_projection(
-    data, r=None, az=None, angle=None, elev=None, autoext=True
+    data, *, r=None, az=None, angle=None, elev=None, autoext=True
 ):
     """Computes the maximum intensity projection along an arbitrary cut \
     through the ppi from polar data.
@@ -864,6 +875,9 @@ def maximum_intensity_projection(
     ----------
     data : :class:`numpy:numpy.ndarray`
         Array containing polar data (azimuth, range)
+
+    Keyword Arguments
+    -----------------
     r : :class:`numpy:numpy.ndarray`
         Array containing range data
     az : :class:`numpy:numpy.ndarray`

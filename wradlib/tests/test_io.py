@@ -322,7 +322,7 @@ def test_to_hdf5():
     assert metadata == resmeta
 
     with pytest.raises(KeyError):
-        io.hdf.from_hdf5(name, "NotAvailable")
+        io.hdf.from_hdf5(name, dataset="NotAvailable")
 
 
 @requires_data
@@ -367,7 +367,7 @@ def test_read_gpm():
     lon = coords[..., 0]
     lat = coords[..., 1]
     bbox = zonalstats.get_bbox(lon, lat)
-    io.hdf.read_gpm(gpm_file, bbox)
+    io.hdf.read_gpm(gpm_file, bbox=bbox)
 
 
 @requires_data
@@ -404,7 +404,7 @@ def test_read_trmm():
     lat = coords[..., 1]
     bbox = zonalstats.get_bbox(lon, lat)
 
-    io.hdf.read_trmm(trmm_2a23_file, trmm_2a25_file, bbox)
+    io.hdf.read_trmm(trmm_2a23_file, trmm_2a25_file, bbox=bbox)
 
 
 def radolan_files():
@@ -1190,7 +1190,7 @@ def test_write_raster_dataset():
 def test_open_raster():
     filename = "geo/bonn_new.tif"
     geofile = util.get_wradlib_data_file(filename)
-    io.gdal.open_raster(geofile, "GTiff")
+    io.gdal.open_raster(geofile, driver="GTiff")
 
 
 @requires_data
@@ -1201,7 +1201,7 @@ def test_open_vector():
     filename = "shapefiles/agger/agger_merge.shp"
     geofile = util.get_wradlib_data_file(filename)
     io.gdal.open_vector(geofile)
-    io.gdal.open_vector(geofile, "ESRI Shapefile")
+    io.gdal.open_vector(geofile, driver="ESRI Shapefile")
 
 
 @pytest.fixture

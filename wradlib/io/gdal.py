@@ -38,7 +38,7 @@ gdal = import_optional("osgeo.gdal")
 isWindows = os.name == "nt"
 
 
-def open_vector(filename, driver=None, layer=0):
+def open_vector(filename, *, driver=None, layer=0):
     """Open vector file, return gdal.Dataset and OGR.Layer
 
         .. warning:: dataset and layer have to live in the same context,
@@ -69,7 +69,7 @@ def open_vector(filename, driver=None, layer=0):
     return dataset, layer
 
 
-def open_raster(filename, driver=None):
+def open_raster(filename, *, driver=None):
     """Open raster file, return gdal.Dataset
 
     Parameters
@@ -127,7 +127,7 @@ def read_safnwc(filename):
 
 
 def gdal_create_dataset(
-    drv, name, cols=0, rows=0, bands=0, gdal_type=None, remove=False
+    drv, name, cols=0, rows=0, bands=0, *, gdal_type=None, remove=False
 ):
     """Creates GDAL.DataSet object.
 
@@ -171,7 +171,7 @@ def gdal_create_dataset(
     return ds
 
 
-def write_raster_dataset(fpath, dataset, rformat, options=None, remove=False):
+def write_raster_dataset(fpath, dataset, rformat, *, options=None, remove=False):
     """Write raster dataset to file format
 
     Parameters
@@ -368,7 +368,7 @@ class VectorSource:
             self._geo = geopandas.read_file(self.ds.GetDescription())
         return self._geo
 
-    def _get_data(self, mode=None):
+    def _get_data(self, *, mode=None):
         """Returns DataSource geometries
 
         Keyword Arguments
@@ -390,7 +390,7 @@ class VectorSource:
                 sources.append(poly)
         return np.array(sources, dtype=object)
 
-    def get_data_by_idx(self, idx, mode=None):
+    def get_data_by_idx(self, idx, *, mode=None):
         """Returns DataSource geometries from given index
 
         Parameters
@@ -521,7 +521,7 @@ class VectorSource:
 
         return ogr_src
 
-    def dump_vector(self, filename, driver="ESRI Shapefile", remove=True):
+    def dump_vector(self, filename, *, driver="ESRI Shapefile", remove=True):
         """Output layer to OGR Vector File
 
         Parameters
@@ -544,7 +544,7 @@ class VectorSource:
         # flush everything
         del ds_out
 
-    def load_vector(self, filename, source=0, driver="ESRI Shapefile"):
+    def load_vector(self, filename, *, source=0, driver="ESRI Shapefile"):
         """Read Layer from OGR Vector File
 
         Parameters
@@ -605,7 +605,14 @@ class VectorSource:
         del ds_in
 
     def dump_raster(
-        self, filename, driver="GTiff", attr=None, pixel_size=1.0, remove=True, **kwargs
+        self,
+        filename,
+        *,
+        driver="GTiff",
+        attr=None,
+        pixel_size=1.0,
+        remove=True,
+        **kwargs,
     ):
         """Output layer to GDAL Rasterfile
 
@@ -674,7 +681,7 @@ class VectorSource:
 
         del ds_out
 
-    def set_attribute(self, name, values, reset_filter=False):
+    def set_attribute(self, name, values, *, reset_filter=False):
         """Add/Set given Attribute with given values
 
         Parameters
@@ -707,7 +714,7 @@ class VectorSource:
         lyr.SyncToDisk()
         self._geo = None
 
-    def get_attributes(self, attrs, filt=None):
+    def get_attributes(self, attrs, *, filt=None):
         """Return attributes
 
         Parameters
@@ -733,7 +740,7 @@ class VectorSource:
                 ret[i].append(ogr_src.GetField(att))
         return ret
 
-    def get_geom_properties(self, props, filt=None):
+    def get_geom_properties(self, props, *, filt=None):
         """Return geometry properties
 
         Parameters
@@ -756,7 +763,7 @@ class VectorSource:
                 ret[i].append(getattr(ogr_src.GetGeometryRef(), prop)())
         return ret
 
-    def get_attrs_and_props(self, attrs=None, props=None, filt=None):
+    def get_attrs_and_props(self, *, attrs=None, props=None, filt=None):
         """Return properties and attributes
 
         Keyword Arguments

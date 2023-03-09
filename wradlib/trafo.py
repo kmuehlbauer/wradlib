@@ -36,6 +36,8 @@ __all__ = [
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from wradlib import util
@@ -45,6 +47,7 @@ meters_per_mile = 1609.344
 meters_per_nautical_mile = 1852.0
 
 
+@dataclass(init=False, repr=False, eq=False)
 class SBandToKu:
     """Class to hold coefficients for Radar Reflectivity Conversion
 
@@ -57,6 +60,7 @@ class SBandToKu:
     rain = np.array([-1.50393, 1.07274, 0.000165393])
 
 
+@dataclass(init=False, repr=False, eq=False)
 class KuBandToS:
     """Class to hold coefficients for Radar Reflectivity Conversion
 

@@ -114,7 +114,7 @@ def _pixel_to_map(coordinates, geotransform):
     return coordinates_map
 
 
-def read_gdal_coordinates(dataset, mode="center"):
+def read_gdal_coordinates(dataset, *, mode="center"):
     """Get the projected coordinates from a GDAL dataset.
 
     Parameters
@@ -174,7 +174,7 @@ def read_gdal_projection(dataset):
     return srs
 
 
-def read_gdal_values(dataset=None, nodata=None):
+def read_gdal_values(dataset, *, nodata=None):
     """Read values from a gdal object.
 
     Parameters
@@ -211,7 +211,7 @@ def read_gdal_values(dataset=None, nodata=None):
     return np.squeeze(np.array(bands))
 
 
-def extract_raster_dataset(dataset, mode="center", nodata=None):
+def extract_raster_dataset(dataset, *, mode="center", nodata=None):
     """Extract data, coordinates and projection information
 
     Parameters
@@ -246,7 +246,7 @@ def extract_raster_dataset(dataset, mode="center", nodata=None):
     return values, coords, projection
 
 
-def get_raster_extent(dataset, geo=False, window=True):
+def get_raster_extent(dataset, *, geo=False, window=True):
     """Get the coordinates of the 4 corners of the raster dataset
 
     Parameters
@@ -287,7 +287,7 @@ def get_raster_extent(dataset, geo=False, window=True):
     return extent
 
 
-def get_raster_elevation(dataset, resample=None, **kwargs):
+def get_raster_elevation(dataset, *, resample=None, **kwargs):
     """Return surface elevation corresponding to raster dataset
        The resampling algorithm is chosen based on scale ratio
 
@@ -370,7 +370,7 @@ def set_raster_origin(data, coords, direction):
     return data, coords
 
 
-def set_raster_indexing(data, coords, indexing="xy"):
+def set_raster_indexing(data, coords, *, indexing="xy"):
     """Sets Data and Coordinates Indexing Scheme
 
     This converts data and coordinate layout from row-major to column major indexing.
@@ -409,7 +409,7 @@ def set_raster_indexing(data, coords, indexing="xy"):
     return data, coords
 
 
-def set_coordinate_indexing(coords, indexing="xy"):
+def set_coordinate_indexing(coords, *, indexing="xy"):
     """Sets Coordinates Indexing Scheme
 
     This converts coordinate layout from row-major to column major indexing.
@@ -592,7 +592,7 @@ def reproject_raster_dataset(src_ds, **kwargs):
     return dst_ds
 
 
-def create_raster_dataset(data, coords, projection=None, nodata=-9999):
+def create_raster_dataset(data, coords, *, projection=None, nodata=-9999):
     """Create In-Memory Raster Dataset
 
     Parameters

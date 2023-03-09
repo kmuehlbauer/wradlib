@@ -456,7 +456,7 @@ def wkt_to_osr(wkt=None):
 
 
 @singledispatch
-def get_earth_radius(latitude, sr=None):
+def get_earth_radius(latitude, *, sr=None):
     """Get the radius of the Earth (in km) for a given Spheroid model (sr) at \
     a given position.
 
@@ -498,7 +498,7 @@ def get_earth_radius(latitude, sr=None):
 
 @get_earth_radius.register(Dataset)
 @get_earth_radius.register(DataArray)
-def _get_earth_radius_xarray(obj, sr=None):
+def _get_earth_radius_xarray(obj, *, sr=None):
     """Get the radius of the Earth (in km) for a given Spheroid model (sr) at \
     a given position.
 
