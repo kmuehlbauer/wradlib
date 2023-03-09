@@ -16,9 +16,9 @@ Standard plotting and mapping procedures.
 """
 __all__ = [
     "plot",
-    "plot_ppi",
+    # "plot_ppi",
     "plot_ppi_crosshair",
-    "plot_rhi",
+    # "plot_rhi",
     "create_cg",
     "plot_scan_strategy",
     "plot_plan_and_vert",
@@ -30,7 +30,6 @@ __all__ = [
 __doc__ = __doc__.format("\n   ".join(__all__))
 
 import collections
-import inspect
 import os.path
 import warnings
 
@@ -53,191 +52,192 @@ osr = util.import_optional("osgeo.osr")
 cartopy = util.import_optional("cartopy")
 
 
-def plot_ppi(
-    data,
-    r=None,
-    az=None,
-    elev=0.0,
-    site=None,
-    proj=None,
-    fig=None,
-    ax=111,
-    func="pcolormesh",
-    rf=1.0,
-    **kwargs,
-):
-    """Plots a Plan Position Indicator (PPI).
-
-    This is a small wrapper around xarray dataarray.
-    The radar data, coordinates and metadata is transformed into an
-    xarray dataarray. Using the wradlib dataarray accessor the dataarray is
-    enabled to plot polar data.
-
-    Using ``proj=cg`` the plotting is done in a curvelinear grid axes.
-    Additional data can be plotted in polar coordinates or cartesian
-    coordinates depending which axes object is used.
-
-    ``**kwargs`` may be used to try to influence the
-    :func:`matplotlib.pyplot.pcolormesh`, :func:`matplotlib.pyplot.contour`,
-    :func:`matplotlib.pyplot.contourf` and
-    :func:`wradlib.georef.polar.spherical_to_proj` routines under the hood.
-
-    Concerning the values of ``r``, ``az``, ``elev``, ``r`` should
-    give the location of the center of each range bin, ``az`` and
-    ``elev`` should give the angle at the center of the beam.
-
-    Parameters
-    ----------
-    data : :class:`numpy:numpy.ndarray`
-        The data to be plotted. It is assumed that the first dimension is over
-        the azimuth angles, while the second dimension is over the range bins
-    r : :class:`numpy:numpy.ndarray`
-        The ranges. Units may be chosen arbitrarily, unless proj is set. In
-        that case the units must be meters. If None, a default is
-        calculated from the dimensions of ``data``.
-    rf: float
-        If present, factor for scaling range axes, defaults to 1.
-    az : :class:`numpy:numpy.ndarray`
-        The azimuth angles in degrees in increasing order. If None, a default is
-        calculated from the dimensions of ``data``.
-    elev : float or :class:`numpy:numpy.ndarray`
-        float or array of same shape as ``az``
-        Elevation angle of the scan or individual azimuths.
-        May improve georeferencing coordinates for larger elevation angles.
-    site : tuple or None
-        Tuple of coordinates of the radar site.
-        If ``proj`` is not used, this simply becomes the offset for the origin
-        of the coordinate system.
-        If ``proj`` is used, values must be given as (longitude, latitude,
-        altitude) tuple of geographical coordinates.
-        Defaults to None.
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`, :py:class:`cartopy.crs.CRS`, dict or None
-        GDAL OSR Spatial Reference Object describing projection
-        If this parameter is not None, ``site`` must be set. Then the function
-        will attempt to georeference the radar bins and display the PPI in the
-        coordinate system defined by the projection string.
-    fig : :class:`matplotlib.figure.Figure`
-        If given, the PPI will be plotted into this figure object. Axes are
-        created as needed. If None, a new figure object will be created or
-        current figure will be used, depending on ``ax``.
-    ax : :class:`matplotlib:matplotlib.axes.Axes` or :class:`matplotlib.gridspec.SubplotSpec`
-        If matplotlib Axes object is given, the PPI will be plotted into this
-        axes object.
-        If matplotlib grid definition is given (nrows/ncols/plotnumber),
-        axis are created in the specified place.
-        Defaults to '111', only one subplot/axis.
-    func : str
-        Name of plotting function to be used under the hood.
-        Defaults to 'pcolormesh'. 'contour' and 'contourf' can be selected too.
-
-    See also
-    --------
-    :func:`wradlib.georef.projection.reproject`
-    :func:`wradlib.georef.projection.create_osr`
-
-    Returns
-    -------
-    ax : :class:`matplotlib:matplotlib.axes.Axes`
-        The axes object into which the PPI was plotted
-    pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
-        :class:`matplotlib:matplotlib.contour.QuadContourSet`
-        The result of the plotting function. Necessary, if you want to
-        add a colorbar to the plot.
-
-    Note
-    ----
-    If proj=``cg``, the ``cgax`` - curvelinear Axes (r-theta-grid)
-    is returned. ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
-    parasite axes object for plotting polar data can be derived like this::
-
-        caax = cgax.parasites[0]
-        paax = cgax.parasites[1]
-
-    The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
-    `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
-
-    Here are some limitations to normal Matplotlib Axes (see
-    `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
-
-    Examples
-    --------
-    See :ref:`/notebooks/visualisation/wradlib_plot_ppi_example.ipynb`,
-    and
-    :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
-    """
-    caller = inspect.stack()[2][3]
-    if caller != "wrapper" or isinstance(data, np.ndarray):
-        warnings.warn(
-            "`plot_ppi` is deprecated and will be removed with the next minor "
-            "version. Please load your data into xarray DataArray or create "
-            "one from scratch."
-        )
-
-    sweep_mode = kwargs.pop("sweep_mode", "azimuth_surveillance")
-    # check coordinate tuple
-    if site and len(site) < 3:
-        raise ValueError(
-            "WRADLIB: `site` need to be a tuple of coordinates "
-            "(longitude, latitude, altitude)."
-        )
-
-    # site must be given, if proj is OSR
-    if util.has_import(osr) and isinstance(proj, osr.SpatialReference) and site is None:
-        raise TypeError(
-            "WRADLIB: If `proj` is Spatial Reference System "
-            "(GDAL OSR SRS) site need to be given "
-            "as tuple of (longitude, latitude, altitude)"
-        )
-
-    # site given without proj
-    if site and not proj:
-        warnings.warn(
-            "WRADLIB: site is given without `proj`, it will be used "
-            "as simple xy-offset"
-        )
-
-    # re/ke kwargs handling
-    kw_spherical = {"re": kwargs.pop("re", None), "ke": kwargs.pop("ke", 4.0 / 3.0)}
-
-    if az is None:
-        az = np.arange(data.shape[0], dtype=np.float_)
-        az += (az[1] - az[0]) / 2.0
-
-    if r is None:
-        if proj and proj != "cg":
-            warnings.warn(
-                "Parameter `r` is None, falling back to `proj=None`."
-                "If using projection, r must be given as "
-                "array with units m."
-            )
-            proj = None
-        r = np.arange(data.shape[1], dtype=np.float_)
-        r += (r[1] - r[0]) / 2.0
-
-    if np.isscalar(elev):
-        elev = np.ones_like(az) * elev
-
-    da = georef.create_xarray_dataarray(
-        data,
-        r=r,
-        phi=az,
-        theta=elev,
-        site=site,
-        proj=proj,
-        sweep_mode=sweep_mode,
-        rf=rf,
-        **kw_spherical,
-    )
-
-    da = georef.georeference(da, proj=proj)
-
-    if util.has_import(osr):
-        # fallback to proj=None for GDAL OSR
-        if isinstance(proj, osr.SpatialReference):
-            proj = None
-    pm = da.wrl.vis.plot(ax=ax, fig=fig, func=func, proj=proj, **kwargs)
-
-    return pl.gca(), pm
+# def plot_ppi(
+#     data,
+#     *,
+#     r=None,
+#     az=None,
+#     elev=0.0,
+#     site=None,
+#     proj=None,
+#     fig=None,
+#     ax=111,
+#     func="pcolormesh",
+#     rf=1.0,
+#     **kwargs,
+# ):
+#     """Plots a Plan Position Indicator (PPI).
+#
+#     This is a small wrapper around xarray dataarray.
+#     The radar data, coordinates and metadata is transformed into an
+#     xarray dataarray. Using the wradlib dataarray accessor the dataarray is
+#     enabled to plot polar data.
+#
+#     Using ``proj=cg`` the plotting is done in a curvelinear grid axes.
+#     Additional data can be plotted in polar coordinates or cartesian
+#     coordinates depending which axes object is used.
+#
+#     ``**kwargs`` may be used to try to influence the
+#     :func:`matplotlib.pyplot.pcolormesh`, :func:`matplotlib.pyplot.contour`,
+#     :func:`matplotlib.pyplot.contourf` and
+#     :func:`wradlib.georef.polar.spherical_to_proj` routines under the hood.
+#
+#     Concerning the values of ``r``, ``az``, ``elev``, ``r`` should
+#     give the location of the center of each range bin, ``az`` and
+#     ``elev`` should give the angle at the center of the beam.
+#
+#     Parameters
+#     ----------
+#     data : :class:`numpy:numpy.ndarray`
+#         The data to be plotted. It is assumed that the first dimension is over
+#         the azimuth angles, while the second dimension is over the range bins
+#     r : :class:`numpy:numpy.ndarray`
+#         The ranges. Units may be chosen arbitrarily, unless proj is set. In
+#         that case the units must be meters. If None, a default is
+#         calculated from the dimensions of ``data``.
+#     rf: float
+#         If present, factor for scaling range axes, defaults to 1.
+#     az : :class:`numpy:numpy.ndarray`
+#         The azimuth angles in degrees in increasing order. If None, a default is
+#         calculated from the dimensions of ``data``.
+#     elev : float or :class:`numpy:numpy.ndarray`
+#         float or array of same shape as ``az``
+#         Elevation angle of the scan or individual azimuths.
+#         May improve georeferencing coordinates for larger elevation angles.
+#     site : tuple or None
+#         Tuple of coordinates of the radar site.
+#         If ``proj`` is not used, this simply becomes the offset for the origin
+#         of the coordinate system.
+#         If ``proj`` is used, values must be given as (longitude, latitude,
+#         altitude) tuple of geographical coordinates.
+#         Defaults to None.
+#     proj : :py:class:`gdal:osgeo.osr.SpatialReference`, :py:class:`cartopy.crs.CRS`, dict or None
+#         GDAL OSR Spatial Reference Object describing projection
+#         If this parameter is not None, ``site`` must be set. Then the function
+#         will attempt to georeference the radar bins and display the PPI in the
+#         coordinate system defined by the projection string.
+#     fig : :class:`matplotlib.figure.Figure`
+#         If given, the PPI will be plotted into this figure object. Axes are
+#         created as needed. If None, a new figure object will be created or
+#         current figure will be used, depending on ``ax``.
+#     ax : :class:`matplotlib:matplotlib.axes.Axes` or :class:`matplotlib.gridspec.SubplotSpec`
+#         If matplotlib Axes object is given, the PPI will be plotted into this
+#         axes object.
+#         If matplotlib grid definition is given (nrows/ncols/plotnumber),
+#         axis are created in the specified place.
+#         Defaults to '111', only one subplot/axis.
+#     func : str
+#         Name of plotting function to be used under the hood.
+#         Defaults to 'pcolormesh'. 'contour' and 'contourf' can be selected too.
+#
+#     See also
+#     --------
+#     :func:`wradlib.georef.projection.reproject`
+#     :func:`wradlib.georef.projection.create_osr`
+#
+#     Returns
+#     -------
+#     ax : :class:`matplotlib:matplotlib.axes.Axes`
+#         The axes object into which the PPI was plotted
+#     pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
+#         :class:`matplotlib:matplotlib.contour.QuadContourSet`
+#         The result of the plotting function. Necessary, if you want to
+#         add a colorbar to the plot.
+#
+#     Note
+#     ----
+#     If proj=``cg``, the ``cgax`` - curvelinear Axes (r-theta-grid)
+#     is returned. ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
+#     parasite axes object for plotting polar data can be derived like this::
+#
+#         caax = cgax.parasites[0]
+#         paax = cgax.parasites[1]
+#
+#     The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
+#     `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
+#
+#     Here are some limitations to normal Matplotlib Axes (see
+#     `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
+#
+#     Examples
+#     --------
+#     See :ref:`/notebooks/visualisation/wradlib_plot_ppi_example.ipynb`,
+#     and
+#     :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
+#     """
+#     caller = inspect.stack()[2][3]
+#     if caller != "wrapper" or isinstance(data, np.ndarray):
+#         warnings.warn(
+#             "`plot_ppi` is deprecated and will be removed with the next minor "
+#             "version. Please load your data into xarray DataArray or create "
+#             "one from scratch."
+#         )
+#
+#     sweep_mode = kwargs.pop("sweep_mode", "azimuth_surveillance")
+#     # check coordinate tuple
+#     if site and len(site) < 3:
+#         raise ValueError(
+#             "WRADLIB: `site` need to be a tuple of coordinates "
+#             "(longitude, latitude, altitude)."
+#         )
+#
+#     # site must be given, if proj is OSR
+#     if util.has_import(osr) and isinstance(proj, osr.SpatialReference) and site is None:
+#         raise TypeError(
+#             "WRADLIB: If `proj` is Spatial Reference System "
+#             "(GDAL OSR SRS) site need to be given "
+#             "as tuple of (longitude, latitude, altitude)"
+#         )
+#
+#     # site given without proj
+#     if site and not proj:
+#         warnings.warn(
+#             "WRADLIB: site is given without `proj`, it will be used "
+#             "as simple xy-offset"
+#         )
+#
+#     # re/ke kwargs handling
+#     kw_spherical = {"re": kwargs.pop("re", None), "ke": kwargs.pop("ke", 4.0 / 3.0)}
+#
+#     if az is None:
+#         az = np.arange(data.shape[0], dtype=np.float_)
+#         az += (az[1] - az[0]) / 2.0
+#
+#     if r is None:
+#         if proj and proj != "cg":
+#             warnings.warn(
+#                 "Parameter `r` is None, falling back to `proj=None`."
+#                 "If using projection, r must be given as "
+#                 "array with units m."
+#             )
+#             proj = None
+#         r = np.arange(data.shape[1], dtype=np.float_)
+#         r += (r[1] - r[0]) / 2.0
+#
+#     if np.isscalar(elev):
+#         elev = np.ones_like(az) * elev
+#
+#     da = georef.create_xarray_dataarray(
+#         data,
+#         r=r,
+#         phi=az,
+#         theta=elev,
+#         site=site,
+#         proj=proj,
+#         sweep_mode=sweep_mode,
+#         rf=rf,
+#         **kw_spherical,
+#     )
+#
+#     da = georef.georeference(da, proj=proj)
+#
+#     if util.has_import(osr):
+#         # fallback to proj=None for GDAL OSR
+#         if isinstance(proj, osr.SpatialReference):
+#             proj = None
+#     pm = da.wrl.vis.plot(ax=ax, fig=fig, func=func, proj=proj, **kwargs)
+#
+#     return pl.gca(), pm
 
 
 def plot_ppi_crosshair(
@@ -380,197 +380,199 @@ def plot_ppi_crosshair(
     return ax
 
 
-def plot_rhi(
-    data,
-    r=None,
-    th=None,
-    th_res=None,
-    az=0,
-    site=None,
-    proj=None,
-    rf=1.0,
-    fig=None,
-    ax=111,
-    **kwargs,
-):
-    """Plots a Range Height Indicator (RHI).
-
-    This is a small wrapper around xarray dataarray.
-
-    The radar data, coordinates and metadata is transformed into an
-    xarray dataarray. Using the wradlib dataarray accessor the dataarray is
-    enabled to plot polar data.
-
-    Using ``cg=True`` the plotting is done in a curvelinear grid axes.
-    Additional data can be plotted in polar coordinates or cartesian
-    coordinates depending which axes object is used.
-
-    ``**kwargs`` may be used to try to influence the
-    :func:`matplotlib.pyplot.pcolormesh`, :func:`matplotlib.pyplot.contour`
-    and :func:`matplotlib.pyplot.contourf` routines under the hood.
-
-    Parameters
-    ----------
-    data : :class:`numpy:numpy.ndarray`
-        The data to be plotted. It is assumed that the first dimension is over
-        the elevation angles, while the second dimension is over the range bins
-    r : :class:`numpy:numpy.ndarray`
-        The ranges. Units may be chosen arbitrarily. If None, a default is
-        calculated from the dimensions of ``data``.
-    rf: float
-        If present, factor for scaling range axis, defaults to 1.
-    th : :class:`numpy:numpy.ndarray`
-        The elevation angles in degrees in increasing order. If None, a default is
-        calculated from the dimensions of ``data``.
-    th_res : float or :class:`numpy:numpy.ndarray`
-        float or array of same shape as ``th``.
-        In RHI's it happens that the elevation angles are spaced wider than
-        the beam width. If this beam width (in degrees) is given in ``th_res``,
-        plot_rhi will plot the beams accordingly. Otherwise the behavior of
-        :func:`matplotlib:matplotlib.pyplot.pcolormesh` assumes all beams to be adjacent
-        to each other, which might lead to unexpected results.
-    az : float or :class:`numpy:numpy.ndarray`
-        float or array of same shape as ``th``.
-    site : tuple
-        Tuple of coordinates of the radar site.
-        If ``proj`` is not used, this simply becomes the offset for the origin
-        of the coordinate system.
-        If ``proj`` is used, values must be given as (longitude, latitude,
-        altitude) tuple of geographical coordinates.
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
-        GDAL OSR Spatial Reference Object describing projection
-        If this parameter is not None, ``site`` must be set. Then the function
-        will attempt to georeference the radar bins in the
-        coordinate system defined by the projection string.
-    fig : :class:`matplotlib:matplotlib.figure.Figure`
-        If given, the RHI will be plotted into this figure object. Axes are
-        created as needed. If None, a new figure object will be created or
-        current figure will be used, depending on ``ax``.
-    ax : :class:`matplotlib:matplotlib.axes.Axes` or :class:`matplotlib:matplotlib.gridspec.SubplotSpec`
-        If matplotlib Axes object is given, the RHI will be plotted into this
-        axes object.
-        If matplotlib grid definition is given (nrows/ncols/plotnumber),
-        axis are created in the specified place.
-        Defaults to '111', only one subplot/axis.
-    func : str
-        Name of plotting function to be used under the hood.
-        Defaults to 'pcolormesh'. 'contour' and 'contourf' can be selected too.
-
-    See also
-    --------
-    :func:`wradlib.vis.create_cg` : creation of curvelinear grid axes objects
-
-    Returns
-    -------
-    ax : :class:`matplotlib:matplotlib.axes.Axes`
-        The axes object into which the RHI was plotted.
-    pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
-        :class:`matplotlib:matplotlib.contour.QuadContourSet`
-        The result of the plotting function. Necessary, if you want to
-        add a colorbar to the plot.
-
-    Note
-    ----
-    If proj=``cg``, the ``cgax`` - curvelinear Axes (r-theta-grid)
-    is returned. ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
-    parasite axes object for plotting polar data can be derived like this::
-
-        caax = cgax.parasites[0]
-        paax = cgax.parasites[1]
-
-    The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
-    `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
-
-    Here are some limitations to normal Matplotlib Axes (see
-    `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
-
-    Examples
-    --------
-    See :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
-    """
-    caller = inspect.stack()[2][3]
-    if caller != "wrapper" or isinstance(data, np.ndarray):
-        warnings.warn(
-            "`plot_rhi` is deprecated and will be removed with the next minor "
-            "version. Please load your data into xarray DataArray or create "
-            "one from scratch."
-        )
-
-    # kwargs handling
-    sweep_mode = kwargs.pop("sweep_mode", "rhi")
-    kwargs["zorder"] = kwargs.pop("zorder", 0)
-    func = kwargs.pop("func", "pcolormesh")
-
-    # re/ke kwargs handling
-    kw_spherical = {"re": kwargs.pop("re", None), "ke": kwargs.pop("ke", 4.0 / 3.0)}
-
-    if th is None:
-        th = np.linspace(0.0, 90.0, num=data.shape[0], endpoint=True)
-        th += (th[1] - th[0]) / 2.0
-
-    if th_res is not None:
-        # we are given a beam resolution and thus may not just glue each
-        # beam to its neighbor
-        # solving this still with the efficient pcolormesh but interlacing
-        # the data with masked values, simulating the gap between beams
-        # make a temporary data array with one dimension twice the size of
-        # the original
-        img = np.ma.empty((data.shape[0], data.shape[1] * 2))
-        # mask everything
-        img.mask = np.ma.masked
-        # set the data in the first half of the temporary array
-        # this automatically unsets the mask
-        img[:, : data.shape[1]] = data
-        # reshape so that data and masked lines interlace each other
-        img = img.reshape((-1, data.shape[1]))
-        # produce lower and upper y coordinates for the actual data
-        yl = th - th_res * 0.5
-        yu = th + th_res * 0.5
-        # glue them together to achieve the proper dimensions for the
-        # interlaced array
-        th = np.concatenate([yl[None, :], yu[None, :]], axis=0).T.ravel()
-    else:
-        img = data
-
-    if r is None:
-        if proj and proj != "cg":
-            warnings.warn(
-                "Parameter `r` is None, falling back to `proj=None`."
-                "If using projection, r must be given as "
-                "array with units m."
-            )
-            proj = None
-        r = np.arange(data.shape[1], dtype=np.float_)
-        r += (r[1] - r[0]) / 2.0
-
-    if np.isscalar(az):
-        az = np.ones_like(th) * az
-
-    da = georef.create_xarray_dataarray(
-        img,
-        r=r,
-        phi=az,
-        theta=th,
-        site=site,
-        proj=proj,
-        sweep_mode=sweep_mode,
-        rf=rf,
-        **kw_spherical,
-    )
-
-    da = georef.georeference(da, proj=proj)
-
-    if util.has_import(osr):
-        # fallback to proj=None for GDAL OSR
-        if isinstance(proj, osr.SpatialReference):
-            proj = None
-
-    pm = da.wrl.vis.plot(ax=ax, fig=fig, func=func, proj=proj, **kwargs)
-
-    return pl.gca(), pm
+# def plot_rhi(
+#     data,
+#     *,
+#     r=None,
+#     th=None,
+#     th_res=None,
+#     az=0,
+#     site=None,
+#     proj=None,
+#     rf=1.0,
+#     fig=None,
+#     ax=111,
+#     **kwargs,
+# ):
+#     """Plots a Range Height Indicator (RHI).
+#
+#     This is a small wrapper around xarray dataarray.
+#
+#     The radar data, coordinates and metadata is transformed into an
+#     xarray dataarray. Using the wradlib dataarray accessor the dataarray is
+#     enabled to plot polar data.
+#
+#     Using ``cg=True`` the plotting is done in a curvelinear grid axes.
+#     Additional data can be plotted in polar coordinates or cartesian
+#     coordinates depending which axes object is used.
+#
+#     ``**kwargs`` may be used to try to influence the
+#     :func:`matplotlib.pyplot.pcolormesh`, :func:`matplotlib.pyplot.contour`
+#     and :func:`matplotlib.pyplot.contourf` routines under the hood.
+#
+#     Parameters
+#     ----------
+#     data : :class:`numpy:numpy.ndarray`
+#         The data to be plotted. It is assumed that the first dimension is over
+#         the elevation angles, while the second dimension is over the range bins
+#     r : :class:`numpy:numpy.ndarray`
+#         The ranges. Units may be chosen arbitrarily. If None, a default is
+#         calculated from the dimensions of ``data``.
+#     rf: float
+#         If present, factor for scaling range axis, defaults to 1.
+#     th : :class:`numpy:numpy.ndarray`
+#         The elevation angles in degrees in increasing order. If None, a default is
+#         calculated from the dimensions of ``data``.
+#     th_res : float or :class:`numpy:numpy.ndarray`
+#         float or array of same shape as ``th``.
+#         In RHI's it happens that the elevation angles are spaced wider than
+#         the beam width. If this beam width (in degrees) is given in ``th_res``,
+#         plot_rhi will plot the beams accordingly. Otherwise the behavior of
+#         :func:`matplotlib:matplotlib.pyplot.pcolormesh` assumes all beams to be adjacent
+#         to each other, which might lead to unexpected results.
+#     az : float or :class:`numpy:numpy.ndarray`
+#         float or array of same shape as ``th``.
+#     site : tuple
+#         Tuple of coordinates of the radar site.
+#         If ``proj`` is not used, this simply becomes the offset for the origin
+#         of the coordinate system.
+#         If ``proj`` is used, values must be given as (longitude, latitude,
+#         altitude) tuple of geographical coordinates.
+#     proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+#         GDAL OSR Spatial Reference Object describing projection
+#         If this parameter is not None, ``site`` must be set. Then the function
+#         will attempt to georeference the radar bins in the
+#         coordinate system defined by the projection string.
+#     fig : :class:`matplotlib:matplotlib.figure.Figure`
+#         If given, the RHI will be plotted into this figure object. Axes are
+#         created as needed. If None, a new figure object will be created or
+#         current figure will be used, depending on ``ax``.
+#     ax : :class:`matplotlib:matplotlib.axes.Axes` or :class:`matplotlib:matplotlib.gridspec.SubplotSpec`
+#         If matplotlib Axes object is given, the RHI will be plotted into this
+#         axes object.
+#         If matplotlib grid definition is given (nrows/ncols/plotnumber),
+#         axis are created in the specified place.
+#         Defaults to '111', only one subplot/axis.
+#     func : str
+#         Name of plotting function to be used under the hood.
+#         Defaults to 'pcolormesh'. 'contour' and 'contourf' can be selected too.
+#
+#     See also
+#     --------
+#     :func:`wradlib.vis.create_cg` : creation of curvelinear grid axes objects
+#
+#     Returns
+#     -------
+#     ax : :class:`matplotlib:matplotlib.axes.Axes`
+#         The axes object into which the RHI was plotted.
+#     pm : :class:`matplotlib:matplotlib.collections.QuadMesh` or \
+#         :class:`matplotlib:matplotlib.contour.QuadContourSet`
+#         The result of the plotting function. Necessary, if you want to
+#         add a colorbar to the plot.
+#
+#     Note
+#     ----
+#     If proj=``cg``, the ``cgax`` - curvelinear Axes (r-theta-grid)
+#     is returned. ``caax`` - Cartesian Axes (x-y-grid) and ``paax`` -
+#     parasite axes object for plotting polar data can be derived like this::
+#
+#         caax = cgax.parasites[0]
+#         paax = cgax.parasites[1]
+#
+#     The function :func:`~wradlib.vis.create_cg` uses the Matplotlib
+#     `AXISARTIST <https://matplotlib.org/stable/api/toolkits/axisartist.html>`_ namespace.
+#
+#     Here are some limitations to normal Matplotlib Axes (see
+#     `AXES_GRID1 <https://matplotlib.org/stable/api/toolkits/axes_grid1.html>`_).
+#
+#     Examples
+#     --------
+#     See :ref:`/notebooks/visualisation/wradlib_plot_curvelinear_grids.ipynb`.
+#     """
+#     caller = inspect.stack()[2][3]
+#     if caller != "wrapper" or isinstance(data, np.ndarray):
+#         warnings.warn(
+#             "`plot_rhi` is deprecated and will be removed with the next minor "
+#             "version. Please load your data into xarray DataArray or create "
+#             "one from scratch."
+#         )
+#
+#     # kwargs handling
+#     sweep_mode = kwargs.pop("sweep_mode", "rhi")
+#     kwargs["zorder"] = kwargs.pop("zorder", 0)
+#     func = kwargs.pop("func", "pcolormesh")
+#
+#     # re/ke kwargs handling
+#     kw_spherical = {"re": kwargs.pop("re", None), "ke": kwargs.pop("ke", 4.0 / 3.0)}
+#
+#     if th is None:
+#         th = np.linspace(0.0, 90.0, num=data.shape[0], endpoint=True)
+#         th += (th[1] - th[0]) / 2.0
+#
+#     if th_res is not None:
+#         # we are given a beam resolution and thus may not just glue each
+#         # beam to its neighbor
+#         # solving this still with the efficient pcolormesh but interlacing
+#         # the data with masked values, simulating the gap between beams
+#         # make a temporary data array with one dimension twice the size of
+#         # the original
+#         img = np.ma.empty((data.shape[0], data.shape[1] * 2))
+#         # mask everything
+#         img.mask = np.ma.masked
+#         # set the data in the first half of the temporary array
+#         # this automatically unsets the mask
+#         img[:, : data.shape[1]] = data
+#         # reshape so that data and masked lines interlace each other
+#         img = img.reshape((-1, data.shape[1]))
+#         # produce lower and upper y coordinates for the actual data
+#         yl = th - th_res * 0.5
+#         yu = th + th_res * 0.5
+#         # glue them together to achieve the proper dimensions for the
+#         # interlaced array
+#         th = np.concatenate([yl[None, :], yu[None, :]], axis=0).T.ravel()
+#     else:
+#         img = data
+#
+#     if r is None:
+#         if proj and proj != "cg":
+#             warnings.warn(
+#                 "Parameter `r` is None, falling back to `proj=None`."
+#                 "If using projection, r must be given as "
+#                 "array with units m."
+#             )
+#             proj = None
+#         r = np.arange(data.shape[1], dtype=np.float_)
+#         r += (r[1] - r[0]) / 2.0
+#
+#     if np.isscalar(az):
+#         az = np.ones_like(th) * az
+#
+#     da = georef.create_xarray_dataarray(
+#         img,
+#         r=r,
+#         phi=az,
+#         theta=th,
+#         site=site,
+#         proj=proj,
+#         sweep_mode=sweep_mode,
+#         rf=rf,
+#         **kw_spherical,
+#     )
+#
+#     da = georef.georeference(da, proj=proj)
+#
+#     if util.has_import(osr):
+#         # fallback to proj=None for GDAL OSR
+#         if isinstance(proj, osr.SpatialReference):
+#             proj = None
+#
+#     pm = da.wrl.vis.plot(ax=ax, fig=fig, func=func, proj=proj, **kwargs)
+#
+#     return pl.gca(), pm
 
 
 def create_cg(
+    *,
     fig=None,
     subplot=111,
     rot=-450,
@@ -707,7 +709,7 @@ def create_cg(
     return cgax, caax, paax
 
 
-def _height_formatter(x, pos, cg=False, scale=1.0, er=6370000.0):
+def _height_formatter(x, pos, *, cg=False, scale=1.0, er=6371000.0):
     if not cg:
         er = 0
     x = (x - er) / scale
@@ -715,13 +717,13 @@ def _height_formatter(x, pos, cg=False, scale=1.0, er=6370000.0):
     return fmt_str
 
 
-def _range_formatter(x, pos, scale=1.0):
+def _range_formatter(x, pos, *, scale=1.0):
     x = x / scale
     fmt_str = f"{x:g}"
     return fmt_str
 
 
-def _plot_beam(r, alt, beamradius, ax=None, label=None):
+def _plot_beam(r, alt, beamradius, *, ax=None, label=None):
     """Plot single beam on ax"""
     if label is None:
         label = ""
@@ -742,6 +744,7 @@ def plot_scan_strategy(
     ranges,
     elevs,
     sitecoords,
+    *,
     beamwidth=1.0,
     vert_res=500.0,
     maxalt=10000.0,
@@ -959,7 +962,7 @@ def plot_scan_strategy(
 
 
 def plot_plan_and_vert(
-    x, y, z, dataxy, datazx, datazy, unit="", title="", saveto="", **kwargs
+    x, y, z, dataxy, datazx, datazy, *, unit="", title="", saveto="", **kwargs
 ):
     """Plot 2-D plan view of ``dataxy`` together with vertical sections \
     ``dataxz`` and ``datazy``
@@ -1069,7 +1072,7 @@ def plot_plan_and_vert(
             pl.close()
 
 
-def plot_max_plan_and_vert(x, y, z, data, unit="", title="", saveto="", **kwargs):
+def plot_max_plan_and_vert(x, y, z, data, *, unit="", title="", saveto="", **kwargs):
     """Plot according to <plot_plan_and_vert> with the maximum values
     along the three axes of ``data``
 
@@ -1084,9 +1087,9 @@ def plot_max_plan_and_vert(x, y, z, data, unit="", title="", saveto="", **kwargs
         np.max(data, axis=-3),
         np.max(data, axis=-2),
         np.max(data, axis=-1),
-        unit,
-        title,
-        saveto,
+        unit=unit,
+        title=title,
+        saveto=saveto,
         **kwargs,
     )
 
@@ -1288,17 +1291,18 @@ def plot(data, **kwargs):
     if sweep_mode == "azimuth_surveillance":
         kwargs.setdefault("az", None)
         kwargs.setdefault("elev", 0.0)
-        return plot_ppi(data, **kwargs)
+        return plot(data, **kwargs)
     else:
         kwargs.setdefault("th", None)
         kwargs.setdefault("th_res", None)
         kwargs.setdefault("az", 0.0)
-        return plot_rhi(data, **kwargs)
+        return plot(data, **kwargs)
 
 
 @plot.register(xarray.DataArray)
 def _plot_xarray(
     da,
+    *,
     ax=111,
     fig=None,
     proj=None,

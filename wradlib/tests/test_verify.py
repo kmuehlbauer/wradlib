@@ -18,7 +18,7 @@ def pol_data():
     class Data:
         r = np.arange(1, 100, 10)
         az = np.arange(0, 360, 90)
-        site = (9.7839, 48.5861)
+        site = (9.7839, 48.5861, 0.0)
         proj = georef.epsg_to_osr(31467)
         # Coordinates of the rain gages in Gauss-Krueger 3 coordinates
         x, y = (np.array([3557880, 3557890]), np.array([5383379, 5383375]))

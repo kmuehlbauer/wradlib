@@ -68,7 +68,7 @@ class PolarNeighbours:
     See :ref:`/notebooks/verification/wradlib_verify_example.ipynb`.
     """
 
-    def __init__(self, r, az, sitecoords, proj, x, y, nnear=9):
+    def __init__(self, r, az, sitecoords, proj, x, y, *, nnear=9):
         self.nnear = nnear
         self.az = az
         self.r = r
@@ -169,7 +169,7 @@ class ErrorMetrics:
 
     """
 
-    def __init__(self, obs, est, minval=None):
+    def __init__(self, obs, est, *, minval=None):
         # Check input
         if len(obs) != len(est):
             raise ValueError(

@@ -69,7 +69,7 @@ from wradlib import trafo, util
 
 @singledispatch
 def process_raw_phidp_vulpiani(
-    obj, dr, ndespeckle=5, winlen=7, niter=2, copy=False, **kwargs
+    obj, dr, *, ndespeckle=5, winlen=7, niter=2, copy=False, **kwargs
 ):
     """Establish consistent :math:`Phi_{DP}` profiles from raw data.
 
@@ -136,7 +136,7 @@ def process_raw_phidp_vulpiani(
     method = kwargs.pop("method", None)
 
     # despeckle
-    phidp = util.despeckle(obj, ndespeckle)
+    phidp = util.despeckle(obj, n=ndespeckle)
 
     # kdp retrieval first guess
     # use finite difference scheme as written in the cited paper
@@ -181,7 +181,7 @@ def process_raw_phidp_vulpiani(
 
 
 @process_raw_phidp_vulpiani.register(xr.DataArray)
-def _process_raw_phidp_vulpiani_xarray(obj, winlen=7, **kwargs):
+def _process_raw_phidp_vulpiani_xarray(obj, *, winlen=7, **kwargs):
     """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
 
     Parameter
@@ -229,7 +229,7 @@ def _process_raw_phidp_vulpiani_xarray(obj, winlen=7, **kwargs):
 
 
 @singledispatch
-def unfold_phi_vulpiani(phidp, kdp, th=-20, winlen=7):
+def unfold_phi_vulpiani(phidp, kdp, *, th=-20, winlen=7):
     """Alternative phase unfolding which completely relies on :math:`K_{DP}`.
 
     This unfolding should be used in oder to iteratively reconstruct
@@ -348,7 +348,7 @@ def _unfold_phi_vulpiani_xarray(obj, **kwargs):
     out.name = "PHIDP"
 
 
-def _fill_sweep(dat, kind="nan_to_num", fill_value=0.0):
+def _fill_sweep(dat, *, kind="nan_to_num", fill_value=0.0):
     """Fills missing data in a 1D profile.
 
     Parameters
@@ -392,7 +392,7 @@ def _fill_sweep(dat, kind="nan_to_num", fill_value=0.0):
 
 @singledispatch
 def kdp_from_phidp(
-    phidp, winlen=7, dr=1.0, method="lanczos_conv", skipna=True, **kwargs
+    phidp, *, winlen=7, dr=1.0, method="lanczos_conv", skipna=True, **kwargs
 ):
     """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
 
@@ -487,7 +487,7 @@ def kdp_from_phidp(
 
 
 @kdp_from_phidp.register(xr.DataArray)
-def _kdp_from_phidp_xarray(obj, winlen=7, **kwargs):
+def _kdp_from_phidp_xarray(obj, *, winlen=7, **kwargs):
     """Retrieves :math:`K_{DP}` from :math:`Phi_{DP}`.
 
     Parameter
@@ -530,7 +530,7 @@ def _kdp_from_phidp_xarray(obj, winlen=7, **kwargs):
 
 
 @singledispatch
-def unfold_phi(phidp, rho, width=5, copy=False):
+def unfold_phi(phidp, rho, *, width=5, copy=False):
     """Unfolds differential phase by adjusting values that exceeded maximum \
     ambiguous range.
 
@@ -650,7 +650,7 @@ def _unfold_phi_xarray(obj, **kwargs):
 
 
 @singledispatch
-def unfold_phi_naive(phidp, rho, width=5, copy=False):
+def unfold_phi_naive(phidp, rho, *, width=5, copy=False):
     """Unfolds differential phase by adjusting values that exceeded maximum \
     ambiguous range.
 

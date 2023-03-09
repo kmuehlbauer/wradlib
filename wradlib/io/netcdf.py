@@ -41,7 +41,7 @@ def _open_netcdf(filename):
         yield nc.Dataset("name", mode="r", memory=filename.read())
 
 
-def read_edge_netcdf(filename, enforce_equidist=False):
+def read_edge_netcdf(filename, *, enforce_equidist=False):
     """Data reader for netCDF files exported by the EDGE radar software
 
     The corresponding NetCDF files from the EDGE software typically contain

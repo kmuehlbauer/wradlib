@@ -63,7 +63,9 @@ def test_calc_attenuation_forward(att_data):
     a = 2e-4
     b = 0.7
     gate_length = 1.0
-    result = atten.calc_attenuation_forward(att_data.gateset, a, b, gate_length)
+    result = atten.calc_attenuation_forward(
+        att_data.gateset, a=a, b=b, gate_length=gate_length
+    )
     assert np.allclose(result, att_data.gateset_result)
 
 

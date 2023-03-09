@@ -55,7 +55,7 @@ pr_types = {
 
 
 @singledispatch
-def filter_gabella_a(obj, wsize, tr1, cartesian=False, radial=False):
+def filter_gabella_a(obj, wsize, tr1, *, cartesian=False, radial=False):
     """First part of the Gabella filter looking for large reflectivity \
     gradients.
 
@@ -171,7 +171,7 @@ def _filter_gabella_a_xarray(obj, **kwargs):
 
 
 @singledispatch
-def filter_gabella_b(obj, thrs=0.0):
+def filter_gabella_b(obj, *, thrs=0.0):
     """Second part of the Gabella filter comparing area to circumference of \
     contiguous echo regions.
 
@@ -279,6 +279,7 @@ def _filter_gabella_b_xarray(obj, **kwargs):
 @singledispatch
 def filter_gabella(
     obj,
+    *,
     wsize=5,
     thrsnorain=0.0,
     tr1=6.0,
@@ -336,14 +337,16 @@ def filter_gabella(
     if rm_nans:
         obj = obj.copy()
         obj[bad] = np.Inf
-    ntr1 = filter_gabella_a(obj, wsize, tr1, cartesian, radial)
+    ntr1 = filter_gabella_a(
+        obj, wsize=wsize, tr1=tr1, cartesian=cartesian, radial=radial
+    )
     if not rm_nans:
         f_good = ndimage.uniform_filter((~bad).astype(float), size=wsize)
         f_good[f_good == 0] = 1e-10
         ntr1 = ntr1 / f_good
         ntr1[bad] = n_p
     clutter1 = ntr1 < n_p
-    ratio = filter_gabella_b(obj, thrsnorain)
+    ratio = filter_gabella_b(obj, thrs=thrsnorain)
     clutter2 = np.abs(ratio) < tr2
     return clutter1 | clutter2
 
@@ -408,7 +411,7 @@ def _filter_gabella_xarray(obj, **kwargs):
 
 
 @singledispatch
-def histo_cut(obj, upper_frequency=0.01, lower_frequency=0.01):
+def histo_cut(obj, *, upper_frequency=0.01, lower_frequency=0.01):
     """Histogram based clutter identification.
 
     This identification algorithm uses the histogram of temporal accumulated
@@ -566,7 +569,7 @@ def _histo_cut_xarray(obj, **kwargs):
 
 
 @singledispatch
-def classify_echo_fuzzy(dat, weights=None, trpz=None, thresh=0.5):
+def classify_echo_fuzzy(dat, *, weights=None, trpz=None, thresh=0.5):
     """Fuzzy echo classification and clutter identification based on \
     polarimetric moments.
 
@@ -897,6 +900,7 @@ def _weight_array(data, weight):
 def filter_cloudtype(
     img,
     cloud,
+    *,
     thrs=0,
     snow=False,
     low=False,
@@ -954,7 +958,7 @@ def filter_cloudtype(
 
 
 @singledispatch
-def filter_window_distance(img, rscale, fsize=1500, tr1=7):
+def filter_window_distance(img, rscale, *, fsize=1500, tr1=7):
     """2d filter looking for large reflectivity gradients.
 
     This function counts for each bin in ``img`` the percentage of surrounding
@@ -1209,7 +1213,7 @@ def probability(data, weights):
     return np.sum(data * weights, axis=1) / maxw
 
 
-def classify(data, threshold=0.0):
+def classify(data, *, threshold=0.0):
     """Calculate probability of hmc-class for every data bin.
 
     Parameters

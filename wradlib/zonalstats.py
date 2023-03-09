@@ -42,7 +42,6 @@ Calling the objects with actual data, however, will be very fast.
    {}
 """
 __all__ = [
-    # "DataSource",
     "ZonalDataBase",
     "ZonalDataPoint",
     "ZonalDataPoly",
@@ -134,7 +133,7 @@ class ZonalDataBase:
 
     """
 
-    def __init__(self, src, trg=None, buf=0.0, srs=None, **kwargs):
+    def __init__(self, src, *, trg=None, buf=0.0, srs=None, **kwargs):
         self._buffer = buf
         self._srs = srs
         silent = kwargs.pop("silent", False)
@@ -285,7 +284,7 @@ class ZonalDataBase:
 
         return ds_out
 
-    def dump_vector(self, filename, driver="ESRI Shapefile", remove=True):
+    def dump_vector(self, filename, *, driver="ESRI Shapefile", remove=True):
         """Output source/target grid points/polygons to ESRI_Shapefile
 
         target layer features are attributed with source index and weight
@@ -299,9 +298,9 @@ class ZonalDataBase:
         remove : bool
             if True, existing file will be removed before creation
         """
-        self.src.dump_vector(filename, driver, remove=remove)
-        self.trg.dump_vector(filename, driver, remove=False)
-        self.dst.dump_vector(filename, driver, remove=False)
+        self.src.dump_vector(filename, driver=driver, remove=remove)
+        self.trg.dump_vector(filename, driver=driver, remove=False)
+        self.dst.dump_vector(filename, driver=driver, remove=False)
 
     def load_vector(self, filename):
         """Load source/target grid points/polygons into in-memory Shapefile
@@ -322,7 +321,7 @@ class ZonalDataBase:
         """Retrieve index and weight from dst DataSource"""
         raise NotImplementedError
 
-    def _get_intersection(self, trg=None, idx=None, buf=0.0):
+    def _get_intersection(self, *, trg=None, idx=None, buf=0.0):
         """Just a toy function if you want to inspect the intersection
         points/polygons of an arbitrary target or an target by index.
         """
@@ -698,7 +697,7 @@ def numpy_to_pathpatch(arr):
     return np.array(paths)
 
 
-def mask_from_bbox(x, y, bbox, polar=False):
+def mask_from_bbox(x, y, bbox, *, polar=False):
     """Return 2-d index array based on spatial selection from a bounding box.
 
     Use this function to create a 2-d boolean mask from 2-d arrays of grids
@@ -857,7 +856,7 @@ def grid_centers_to_vertices(x, y, dx, dy):
     return verts
 
 
-def get_clip_mask(coords, clippoly, srs=None):
+def get_clip_mask(coords, clippoly, *, srs=None):
     """Returns boolean mask of points ``coords`` inside polygon ``clippoly``
 
     Parameters
@@ -878,7 +877,7 @@ def get_clip_mask(coords, clippoly, srs=None):
     """
     clip = [clippoly]
 
-    zd = ZonalDataPoint(coords.reshape(-1, coords.shape[-1]), clip, srs=srs)
+    zd = ZonalDataPoint(coords.reshape(-1, coords.shape[-1]), trg=clip, srs=srs)
 
     # Subsetting in order to use only precipitating profiles
     src_mask = np.zeros(coords.shape[0:-1], dtype=np.bool_)

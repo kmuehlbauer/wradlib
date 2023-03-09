@@ -31,7 +31,7 @@ from wradlib import trafo, util
 
 
 @singledispatch
-def z_to_r(z, a=200.0, b=1.6):
+def z_to_r(z, *, a=200.0, b=1.6):
     """Conversion from reflectivities to rain rates.
 
     Calculates rain rates from radar reflectivities using
@@ -108,7 +108,7 @@ def _z_to_r_xarray(obj, **kwargs):
 
 
 @singledispatch
-def r_to_z(r, a=200.0, b=1.6):
+def r_to_z(r, *, a=200.0, b=1.6):
     """Calculates reflectivity from rain rates using
     a power law Z/R relationship Z = a*R**b
 
@@ -179,7 +179,7 @@ def _r_to_z_xarray(obj, **kwargs):
 
 
 @singledispatch
-def z_to_r_enhanced(z, polar=True, shower=True):
+def z_to_r_enhanced(z, *, polar=True, shower=True):
     """Calculates rainrates from radar reflectivities using the enhanced \
     three-part Z-R-relationship used by the DWD (as of 2009)
 

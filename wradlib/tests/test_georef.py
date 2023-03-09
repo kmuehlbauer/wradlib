@@ -183,7 +183,7 @@ def test_spherical_to_xyz(coord_transform_data):
 
 def test_bin_altitude():
     altitude = georef.bin_altitude(
-        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, 6370040.0
+        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, re=6370040.0
     )
     altref = np.array(
         [
@@ -204,7 +204,7 @@ def test_bin_altitude():
 
 def test_bin_distance():
     distance = georef.bin_distance(
-        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, 6370040.0
+        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, re=6370040.0
     )
     distref = np.array(
         [
@@ -225,10 +225,10 @@ def test_bin_distance():
 
 def test_site_distance():
     altitude = georef.bin_altitude(
-        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, 6370040.0
+        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, 0, re=6370040.0
     )
     distance = georef.site_distance(
-        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, altitude, 6370040.0
+        np.arange(10.0, 101.0, 10.0) * 1000.0, 2.0, altitude, re=6370040.0
     )
     distref = np.array(
         [
@@ -298,7 +298,7 @@ def test_spherical_to_polyvert():
         np.array([10000.0, 10100.0]),
         np.array([45.0, 90.0]),
         0,
-        (9.0, 48.0),
+        (9.0, 48.0, 0),
         proj=sph,
     )
     arr = np.asarray(
@@ -335,7 +335,7 @@ def test_spherical_to_polyvert():
     )
     np.testing.assert_array_almost_equal(polyvert, arr, decimal=3)
     polyvert, pr = georef.spherical_to_polyvert(
-        np.array([10000.0, 10100.0]), np.array([45.0, 90.0]), 0, (9.0, 48.0)
+        np.array([10000.0, 10100.0]), np.array([45.0, 90.0]), 0, (9.0, 48.0, 0)
     )
     arr = np.asarray(
         [
@@ -587,29 +587,31 @@ def test_reproject():
     proj_gk.ImportFromEPSG(31466)
     proj_wgs84 = osr.SpatialReference()
     proj_wgs84.ImportFromEPSG(4326)
-    x, y, z = georef.reproject(
-        7.0, 53.0, 0.0, projection_source=proj_wgs84, projection_target=proj_gk
+    lon0, lat0, alt0 = 7.0, 53.0, 0.0
+    x0, y0, z0 = georef.reproject(
+        lon0, lat0, alt0, projection_source=proj_wgs84, projection_target=proj_gk
     )
+    lon, lat, alt = georef.reproject(
+        x0, y0, z0, projection_source=proj_gk, projection_target=proj_wgs84
+    )
+    assert pytest.approx(lon) == 7.0
+    assert pytest.approx(lat) == 53.0
+    assert pytest.approx(alt) == 0.0
+
     lon, lat = georef.reproject(
-        x, y, projection_source=proj_gk, projection_target=proj_wgs84
+        np.stack((x0, y0), axis=-1),
+        projection_source=proj_gk,
+        projection_target=proj_wgs84,
     )
     assert pytest.approx(lon) == 7.0
     assert pytest.approx(lat) == 53.0
 
-    lonlat = georef.reproject(
-        np.stack((x, y), axis=-1),
-        projection_source=proj_gk,
-        projection_target=proj_wgs84,
-    )
-    assert pytest.approx(lonlat[0]) == 7.0
-    assert pytest.approx(lonlat[1]) == 53.0
-
     lon, lat, alt = georef.reproject(
-        x, y, z, projection_source=proj_gk, projection_target=proj_wgs84
+        x0, y0, z0, projection_source=proj_gk, projection_target=proj_wgs84
     )
-    assert pytest.approx(lon, abs=1e-5) == 7.0
-    assert pytest.approx(lat, abs=1e-3) == 53.0
-    assert pytest.approx(alt, abs=1e-3) == 0.0
+    assert pytest.approx(lon) == 7.0
+    assert pytest.approx(lat) == 53.0
+    assert pytest.approx(alt) == 0.0
 
 
 @requires_gdal
@@ -916,23 +918,23 @@ def test_set_raster_indexing(gdal_data):
     data, coords = georef.set_raster_origin(
         gdal_data.data.copy(), gdal_data.coords.copy(), "lower"
     )
-    data, coords = georef.set_raster_indexing(data, coords, "ij")
+    data, coords = georef.set_raster_indexing(data, coords, indexing="ij")
     np.testing.assert_array_equal(
         data, np.swapaxes(np.flip(gdal_data.data, axis=-2), 0, 1)
     )
     np.testing.assert_array_equal(
         coords, np.swapaxes(np.flip(gdal_data.coords, axis=-3), 0, 1)
     )
-    data, coords = georef.set_raster_indexing(data, coords, "xy")
+    data, coords = georef.set_raster_indexing(data, coords, indexing="xy")
     np.testing.assert_array_equal(data, np.flip(gdal_data.data, axis=-2))
     np.testing.assert_array_equal(coords, np.flip(gdal_data.coords, axis=-3))
 
 
 @requires_gdal
 def test_set_coordinate_indexing(gdal_data):
-    coords = georef.set_coordinate_indexing(gdal_data.coords.copy(), "ij")
+    coords = georef.set_coordinate_indexing(gdal_data.coords.copy(), indexing="ij")
     np.testing.assert_array_equal(coords, np.swapaxes(gdal_data.coords, 0, 1))
-    coords = georef.set_coordinate_indexing(gdal_data.coords.copy(), "xy")
+    coords = georef.set_coordinate_indexing(gdal_data.coords.copy(), indexing="xy")
     np.testing.assert_array_equal(coords, gdal_data.coords)
 
 
@@ -1205,7 +1207,7 @@ def sat_data():
         pr_x, pr_y = georef.reproject(
             pr_lon, pr_lat, projection_source=wgs84, projection_target=rad
         )
-        re = georef.get_earth_radius(pr_lat[68, 0], wgs84) * 4.0 / 3.0
+        re = georef.get_earth_radius(pr_lat[68, 0], sr=wgs84) * 4.0 / 3.0
         pr_xy = np.dstack((pr_x, pr_y))
         alpha = zenith
         zt = 407000.0
@@ -1591,10 +1593,7 @@ def test_create_xarray_dataarray():
     r = np.arange(0, 100000, 10000)
     az = np.arange(0, 360)
     th = np.zeros_like(az)
-    proj = georef.epsg_to_osr(4326)
-    with pytest.raises(TypeError):
-        georef.create_xarray_dataarray(img)
-    georef.create_xarray_dataarray(img, r, az, th, proj=proj)
+    georef.create_xarray_dataarray(img, r=r, phi=az, theta=th)
 
 
 @requires_gdal

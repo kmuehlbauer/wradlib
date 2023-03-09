@@ -52,6 +52,7 @@ def as_xarray_dataarray(data, dims, coords):
 
 def create_xarray_dataarray(
     data,
+    *,
     r=None,
     phi=None,
     theta=None,
@@ -101,11 +102,26 @@ def create_xarray_dataarray(
     dataset : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    if (r is None) or (phi is None) or (theta is None):
-        raise TypeError(
-            "wradlib: function `create_xarray_dataarray` requires "
-            "r, phi and theta keyword-arguments."
+    sweep_mode = kwargs.pop("sweep_mode", "azimuth_surveillance")
+    # check coordinate tuple
+    if site and len(site) < 3:
+        raise ValueError(
+            "WRADLIB: `site` need to be a tuple of coordinates "
+            "(longitude, latitude, altitude)."
         )
+
+    if phi is None:
+        phi = np.arange(data.shape[0], dtype=np.float_)
+        phi += (phi[1] - phi[0]) / 2.0
+
+    if r is None:
+        r = np.arange(data.shape[1], dtype=np.float_)
+        r += (r[1] - r[0]) / 2.0
+
+    if theta is None:
+        theta = 0.0
+    if np.isscalar(theta):
+        theta = np.ones_like(phi) * theta
 
     r = r.copy()
     phi = phi.copy()

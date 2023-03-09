@@ -26,7 +26,7 @@ from wradlib import util
 
 
 @singledispatch
-def bin_altitude(r, theta, sitealt, re, ke=4.0 / 3.0):
+def bin_altitude(r, theta, sitealt, *, re=6371000, ke=4.0 / 3.0):
     """Calculates the height of a radar bin taking the refractivity of the \
     atmosphere into account.
 
@@ -45,6 +45,9 @@ def bin_altitude(r, theta, sitealt, re, ke=4.0 / 3.0):
         at horizontal and +90° pointing vertically upwards from the radar
     sitealt : float
         Altitude in [m] a.s.l. of the referencing radar site
+
+    Keyword Arguments
+    -----------------
     re : float
         earth's radius [m]
     ke : float
@@ -79,8 +82,6 @@ def _bin_altitude_xarray(obj, **kwargs):
     z : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    re = kwargs.pop("re", 6370000)
-    kwargs.setdefault("ke", 4.0 / 3.0)
     out = apply_ufunc(
         bin_altitude,
         obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
@@ -90,8 +91,7 @@ def _bin_altitude_xarray(obj, **kwargs):
             range=obj.range
         ),
         obj.altitude.values,
-        re,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"], [None], [None]],
+        input_core_dims=[["azimuth", "range"], ["azimuth", "range"], [None]],
         output_core_dims=[["azimuth", "range"]],
         dask="parallelized",
         kwargs=kwargs,
@@ -103,7 +103,7 @@ def _bin_altitude_xarray(obj, **kwargs):
 
 
 @singledispatch
-def bin_distance(r, theta, sitealt, re, ke=4.0 / 3.0):
+def bin_distance(r, theta, sitealt, *, re=6371000, ke=4.0 / 3.0):
     """Calculates great circle distance from radar site to radar bin over \
     spherical earth, taking the refractivity of the atmosphere into account.
 
@@ -157,8 +157,6 @@ def _bin_distance_xarray(obj, **kwargs):
     bin_distance : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    re = kwargs.pop("re", 6370000)
-    kwargs.setdefault("ke", 4.0 / 3.0)
     out = apply_ufunc(
         bin_distance,
         obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
@@ -168,7 +166,6 @@ def _bin_distance_xarray(obj, **kwargs):
             range=obj.range
         ),
         obj.altitude.values,
-        re,
         input_core_dims=[["azimuth", "range"], ["azimuth", "range"], [None], [None]],
         output_core_dims=[["azimuth", "range"]],
         dask="parallelized",
@@ -181,7 +178,7 @@ def _bin_distance_xarray(obj, **kwargs):
 
 
 @singledispatch
-def site_distance(r, theta, binalt, re=None, ke=4.0 / 3.0):
+def site_distance(r, theta, binalt, *, re=6371000, ke=4.0 / 3.0):
     """Calculates great circle distance from bin at certain altitude to the \
     radar site over spherical earth, taking the refractivity of the \
     atmosphere into account.
@@ -205,6 +202,9 @@ def site_distance(r, theta, binalt, re=None, ke=4.0 / 3.0):
         at horizontal and +90° pointing vertically upwards from the radar
     binalt : :class:`numpy:numpy.ndarray`
         site altitude [m] amsl. same shape as r.
+
+    Keyword Arguments
+    -----------------
     re : float
         earth's radius [m]
     ke : float
@@ -237,8 +237,6 @@ def _site_distance_xarray(obj, **kwargs):
     z : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    kwargs.setdefault("re", 6370000)
-    kwargs.setdefault("ke", 4.0 / 3.0)
     binalt = bin_altitude(obj)
     out = apply_ufunc(
         site_distance,

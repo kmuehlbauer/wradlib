@@ -86,7 +86,7 @@ def correct_parallax(sr_xy, nbin, drt, alpha):
     return np.stack((sr_xp, sr_yp), axis=3), r_sr_inv, z_sr
 
 
-def dist_from_orbit(sr_alt, alpha, beta, r_sr_inv, re):
+def dist_from_orbit(sr_alt, alpha, beta, r_sr_inv, *, re=6371000):
     """Returns range distances of SR bins (in meters) as seen from the orbit
 
     With *SR*, we refer to precipitation radars based on space-born platforms

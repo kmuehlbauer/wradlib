@@ -171,7 +171,7 @@ def from_to(tstart, tend, tdelta):
     return tsteps
 
 
-def _idvalid(data, isinvalid=None, minval=None, maxval=None):
+def _idvalid(data, *, isinvalid=None, minval=None, maxval=None):
     """Identifies valid entries in an array and returns the corresponding
     indices
 
@@ -304,7 +304,7 @@ def trapezoid(data, x1, x2, x3, x4):
     return d
 
 
-def filter_window_polar(img, wsize, fun, rscale, random=False):
+def filter_window_polar(img, wsize, fun, rscale, *, random=False):
     """Apply a filter of an approximated square window of half size `fsize` \
     on a given polar image `img`.
 
@@ -357,7 +357,7 @@ def filter_window_polar(img, wsize, fun, rscale, random=False):
     return data_filtered
 
 
-def prob_round(x, prec=0):
+def prob_round(x, *, prec=0):
     """Round the float number `x` to the lower or higher integer randomly
     following a binomial distribution
 
@@ -629,7 +629,7 @@ def calculate_polynomial(data, w):
     return poly
 
 
-def medfilt_along_axis(x, n, axis=-1):
+def medfilt_along_axis(x, n, *, axis=-1):
     """Applies median filter smoothing on one axis of an N-dimensional array."""
     kernel_size = np.array(x.shape)
     kernel_size[:] = 1
@@ -637,9 +637,8 @@ def medfilt_along_axis(x, n, axis=-1):
     return signal.medfilt(x, kernel_size)
 
 
-def gradient_along_axis(x):
+def gradient_along_axis(x, *, axis=-1):
     """Computes gradient along last axis of an N-dimensional array"""
-    axis = -1
     newshape = np.array(x.shape)
     newshape[axis] = 1
     diff_begin = (x[..., 1] - x[..., 0]).reshape(newshape)
@@ -649,9 +648,9 @@ def gradient_along_axis(x):
     return np.insert(diffs, [0], diff_begin, axis=axis)
 
 
-def gradient_from_smoothed(x, n=5):
+def gradient_from_smoothed(x, *, n=5, axis=-1):
     """Computes gradient of smoothed data along final axis of an array"""
-    return gradient_along_axis(medfilt_along_axis(x, n)).astype("f4")
+    return gradient_along_axis(medfilt_along_axis(x, n=5, axis=axis)).astype("f4")
 
 
 def center_to_edge(centers):
@@ -661,7 +660,7 @@ def center_to_edge(centers):
     return edges
 
 
-def _pad_array(data, pad, mode="reflect", **kwargs):
+def _pad_array(data, pad, *, mode="reflect", **kwargs):
     """Returns array with padding added along last dimension."""
     pad_width = [(0,)] * (data.ndim - 1) + [(pad,)]
     if mode in ["maximum", "mean", "median", "minimum"]:
@@ -677,7 +676,7 @@ def _rolling_dim(data, window):
     return np.lib.stride_tricks.as_strided(data, shape=shape, strides=strides)
 
 
-def _linregress_1d(rhs, method="lstsq"):
+def _linregress_1d(rhs, *, method="lstsq"):
     """Calculates slope by means of linear regression on last dimension of rhs.
 
     Calculates lhs from size of last dimension of rhs.
@@ -784,7 +783,7 @@ def _lanczos_differentiator(winlen):
 
 
 @singledispatch
-def derivate(data, winlen=7, method="lanczos_conv", skipna=False, **kwargs):
+def derivate(data, *, winlen=7, method="lanczos_conv", skipna=False, **kwargs):
     """Calculates derivative of data using window of length winlen.
 
     In normal operation the method ('lanczos_conv') uses convolution
@@ -991,7 +990,7 @@ lanczos-low-noise-differentiators/>`_.
 
 
 @singledispatch
-def despeckle(data, n=3, copy=False):
+def despeckle(data, *, n=3, copy=False):
     """Remove floating pixels in between NaNs in a multi-dimensional array.
 
     Warning
@@ -1089,7 +1088,7 @@ def has_import(module):
     return not isinstance(module, OptionalModuleStub)
 
 
-def vertical_interpolate_volume(vol, elevs=None, method="nearest"):
+def vertical_interpolate_volume(vol, *, elevs=None, method="nearest"):
     """
     Vertically interpolate volume data
 
@@ -1129,6 +1128,7 @@ def vertical_interpolate_volume(vol, elevs=None, method="nearest"):
 def cross_section_ppi(
     obj,
     azimuth,
+    *,
     method=None,
     tolerance=None,
     real_beams=False,

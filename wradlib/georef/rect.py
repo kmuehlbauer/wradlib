@@ -359,7 +359,7 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
     return radolan_grid
 
 
-def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
+def xyz_to_spherical(xyz, *, altitude=0, proj=None, ke=4.0 / 3.0):
     """Returns spherical representation (r, theta, phi) of given cartesian
     coordinates (x, y, z) with respect to the reference altitude (asl)
     considering earth's geometry (proj).
@@ -368,7 +368,7 @@ def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
     ----------
     xyz : :class:`numpy:numpy.ndarray`
         Array of shape (..., 3). Contains cartesian coordinates.
-    alt : float
+    altitude : float
         Altitude (in meters)
         defaults to 0.
     proj : :py:class:`gdal:osgeo.osr.SpatialReference`
@@ -397,7 +397,7 @@ def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
         lat0 = proj.GetProjParm("latitude_of_center")
         re = projection.get_earth_radius(lat0, proj)
     except Exception:
-        re = 6370040.0
+        re = 6371000.0
 
     # calculate xy-distance
     s = np.sqrt(np.sum(xyz[..., 0:2] ** 2, axis=-1))
@@ -406,7 +406,7 @@ def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
     gamma = s / (re * ke)
 
     # calculate elevation angle theta
-    numer = np.cos(gamma) - (re * ke + alt) / (re * ke + xyz[..., 2])
+    numer = np.cos(gamma) - (re * ke + altitude) / (re * ke + xyz[..., 2])
     denom = np.sin(gamma)
     theta = np.arctan(numer / denom)
 
@@ -415,7 +415,7 @@ def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
     # another method using gamma only, but slower
     # keep it here for reference
     # f1 = (re * ke + xyz[..., 2])
-    # f2 = (re * ke + alt)
+    # f2 = (re * ke + altitude)
     # r = np.sqrt(f1**2 + f2**2  - 2 * f1 * f2 * np.cos(gamma))
 
     # calculate azimuth angle phi
@@ -425,13 +425,16 @@ def xyz_to_spherical(xyz, alt=0, proj=None, ke=4.0 / 3.0):
     return r, phi, np.degrees(theta)
 
 
-def grid_to_polyvert(grid, ravel=False):
+def grid_to_polyvert(grid, *, ravel=False):
     """Get polygonal vertices from rectangular grid coordinates.
 
     Parameters
     ----------
     grid : :class:`numpy:numpy.ndarray`
         grid edge coordinates
+
+    Keyword Arguments
+    -----------------
     ravel : bool
         option to flatten the grid
 
