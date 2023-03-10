@@ -76,8 +76,6 @@ def create_xarray_dataarray(
         The azimuth angles in degrees.
     theta : :class:`numpy:numpy.ndarray`
         The elevation angles in degrees.
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
-        Destination Spatial Reference System (Projection).
     site : tuple
         Tuple of coordinates of the radar site.
     sweep_mode : str

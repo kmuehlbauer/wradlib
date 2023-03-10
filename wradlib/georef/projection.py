@@ -152,18 +152,18 @@ Georeferencing-and-Projection`.
         'AXIS["Northing", SOUTH]]'
     )
 
-    proj = osr.SpatialReference()
+    crs = osr.SpatialReference()
 
     if projname == "aeqd":
         # Azimuthal Equidistant
         x_0 = kwargs.get("x_0", 0.0)
         y_0 = kwargs.get("y_0", 0.0)
         if "x_0" in kwargs:
-            proj.ImportFromWkt(
+            crs.ImportFromWkt(
                 aeqd_wkt.format(kwargs["lat_0"], kwargs["lon_0"], x_0, y_0)
             )
         else:
-            proj.ImportFromWkt(
+            crs.ImportFromWkt(
                 aeqd_wkt.format(kwargs["lat_0"], kwargs["lon_0"], 0.0, 0.0)
             )
     elif "dwd-radolan" in projname:
@@ -183,7 +183,7 @@ Georeferencing-and-Projection`.
         x_0 = kwargs.get("x_0", ref["x_0"])
         y_0 = kwargs.get("y_0", ref["y_0"])
         radolan_wkt = radolan_ellps[ellps] + polar_stereo_wkt.format(x_0, y_0, unit)
-        proj.ImportFromWkt(radolan_wkt)
+        crs.ImportFromWkt(radolan_wkt)
     else:
         raise ValueError(
             f"No convenience support for projection {projname}, "
@@ -191,7 +191,7 @@ Georeferencing-and-Projection`.
             "other means..."
         )
 
-    return proj
+    return crs
 
 
 def proj4_to_osr(proj4str):
@@ -208,16 +208,16 @@ def proj4_to_osr(proj4str):
     See :ref:`/notebooks/fileio/radolan/radolan_grid.ipynb#PROJ`.
 
     """
-    proj = osr.SpatialReference()
-    proj.ImportFromProj4(proj4str)
-    proj.AutoIdentifyEPSG()
+    crs = osr.SpatialReference()
+    crs.ImportFromProj4(proj4str)
+    crs.AutoIdentifyEPSG()
 
-    if proj.Validate() == ogr.OGRERR_CORRUPT_DATA:
+    if crs.Validate() == ogr.OGRERR_CORRUPT_DATA:
         raise ValueError(
             "proj4str validates to 'ogr.OGRERR_CORRUPT_DATA'"
             "and can't be imported as OSR object"
         )
-    return proj
+    return crs
 
 
 @singledispatch
@@ -247,9 +247,9 @@ def reproject(*args, **kwargs):
 
     Keyword Arguments
     -----------------
-    projection_source : :py:class:`gdal:osgeo.osr.SpatialReference`
+    src_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         defaults to EPSG(4326)
-    projection_target : :py:class:`gdal:osgeo.osr.SpatialReference`
+    trg_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         defaults to EPSG(4326)
     area_of_interest : tuple
         tuple of floats (WestLongitudeDeg, SouthLatitudeDeg, EastLongitudeDeg,
@@ -304,19 +304,17 @@ def reproject(*args, **kwargs):
         else:
             C = np.concatenate([X.ravel()[:, None], Y.ravel()[:, None]], axis=1)
 
-    projection_source = kwargs.get("projection_source", get_default_projection())
-    projection_target = kwargs.get("projection_target", get_default_projection())
+    src_crs = kwargs.get("src_crs", get_default_projection())
+    trg_crs = kwargs.get("trg_crs", get_default_projection())
     area_of_interest = kwargs.get("area_of_interest", None)
 
     axis_order = osr.OAMS_TRADITIONAL_GIS_ORDER
-    projection_source.SetAxisMappingStrategy(axis_order)
-    projection_target.SetAxisMappingStrategy(axis_order)
+    src_crs.SetAxisMappingStrategy(axis_order)
+    trg_crs.SetAxisMappingStrategy(axis_order)
     options = osr.CoordinateTransformationOptions()
     if area_of_interest is not None:
         options.SetAreaOfInterest(*area_of_interest)
-    ct = osr.CreateCoordinateTransformation(
-        projection_source, projection_target, options
-    )
+    ct = osr.CreateCoordinateTransformation(src_crs, trg_crs, options)
     trans = np.array(ct.TransformPoints(C))
 
     if len(args) == 1:
@@ -398,9 +396,9 @@ def _reproject_xarray(obj, **kwargs):
 
 def get_default_projection():
     """Create a default projection object (wgs84)"""
-    proj = osr.SpatialReference()
-    proj.ImportFromEPSG(4326)
-    return proj
+    crs = osr.SpatialReference()
+    crs.ImportFromEPSG(4326)
+    return crs
 
 
 def epsg_to_osr(epsg=None):
@@ -413,16 +411,16 @@ def epsg_to_osr(epsg=None):
 
     Returns
     -------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         GDAL/OSR object defining projection
     """
-    proj = None
+    crs = None
     if epsg:
-        proj = osr.SpatialReference()
-        proj.ImportFromEPSG(epsg)
+        crs = osr.SpatialReference()
+        crs.ImportFromEPSG(epsg)
     else:
-        proj = get_default_projection()
-    return proj
+        crs = get_default_projection()
+    return crs
 
 
 def wkt_to_osr(wkt=None):
@@ -435,24 +433,24 @@ def wkt_to_osr(wkt=None):
 
     Returns
     -------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         GDAL/OSR object defining projection
 
     """
-    proj = None
+    crs = None
     if wkt:
-        proj = osr.SpatialReference()
-        proj.ImportFromWkt(wkt)
+        crs = osr.SpatialReference()
+        crs.ImportFromWkt(wkt)
     else:
-        proj = get_default_projection()
+        crs = get_default_projection()
 
-    if proj.Validate() == ogr.OGRERR_CORRUPT_DATA:
+    if crs.Validate() == ogr.OGRERR_CORRUPT_DATA:
         raise ValueError(
             "wkt validates to 'ogr.OGRERR_CORRUPT_DATA'"
             "and can't be imported as OSR object"
         )
 
-    return proj
+    return crs
 
 
 @singledispatch
@@ -551,27 +549,27 @@ def get_earth_projection(model="ellipsoid"):
 
     Returns
     -------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         projection definition
 
     """
-    proj = osr.SpatialReference()
+    crs = osr.SpatialReference()
 
     if model == "sphere":
-        proj.ImportFromEPSG(4047)
+        crs.ImportFromEPSG(4047)
     elif model == "ellipsoid":
-        proj.ImportFromEPSG(4979)
+        crs.ImportFromEPSG(4979)
     elif model == "geoid":
         wgs84 = osr.SpatialReference()
         wgs84.ImportFromEPSG(4326)
         egm96 = osr.SpatialReference()
         egm96.ImportFromEPSG(5773)
-        proj = osr.SpatialReference()
-        proj.SetCompoundCS("WGS84 Horizontal + EGM96 Vertical", wgs84, egm96)
+        crs = osr.SpatialReference()
+        crs.SetCompoundCS("WGS84 Horizontal + EGM96 Vertical", wgs84, egm96)
     else:
         raise ValueError(f"wradlib: Unknown model='{model}'.")
 
-    return proj
+    return crs
 
 
 def get_radar_projection(sitecoords):
@@ -585,15 +583,15 @@ def get_radar_projection(sitecoords):
 
     Returns
     -------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         projection definition
 
     """
-    proj = osr.SpatialReference()
-    proj.SetProjCS("Unknown Azimuthal Equidistant")
-    proj.SetAE(sitecoords[1], sitecoords[0], 0, 0)
+    crs = osr.SpatialReference()
+    crs.SetProjCS("Unknown Azimuthal Equidistant")
+    crs.SetAE(sitecoords[1], sitecoords[0], 0, 0)
 
-    return proj
+    return crs
 
 
 def get_extent(coords):
@@ -606,8 +604,8 @@ def get_extent(coords):
 
     Returns
     -------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
-        GDAL/OSR object defining projection
+    extent : tuple
+        (xmin, xmax, ymin, ymax)
     """
 
     xmin = coords[..., 0].min()

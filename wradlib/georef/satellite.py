@@ -20,7 +20,7 @@ import numpy as np
 
 
 def correct_parallax(sr_xy, nbin, drt, alpha):
-    """Adjust the geo-locations of the SR pixels.
+    """Adjust the geogrpahic locations of the SR pixels.
 
     With *SR*, we refer to precipitation radars based on space-born platforms
     such as TRMM or GPM.

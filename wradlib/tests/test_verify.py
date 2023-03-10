@@ -19,7 +19,7 @@ def pol_data():
         r = np.arange(1, 100, 10)
         az = np.arange(0, 360, 90)
         site = (9.7839, 48.5861, 0.0)
-        proj = georef.epsg_to_osr(31467)
+        crs = georef.epsg_to_osr(31467)
         # Coordinates of the rain gages in Gauss-Krueger 3 coordinates
         x, y = (np.array([3557880, 3557890]), np.array([5383379, 5383375]))
 
@@ -35,7 +35,7 @@ def test_PolarNeighbours__init__(pol_data):
         pol_data.r,
         pol_data.az,
         pol_data.site,
-        pol_data.proj,
+        pol_data.crs,
         pol_data.x,
         pol_data.y,
         nnear=9,
@@ -48,7 +48,7 @@ def test_extract(pol_data):
         pol_data.r,
         pol_data.az,
         pol_data.site,
-        pol_data.proj,
+        pol_data.crs,
         pol_data.x,
         pol_data.y,
         nnear=4,
@@ -66,7 +66,7 @@ def test_get_bincoords(pol_data):
         pol_data.r,
         pol_data.az,
         pol_data.site,
-        pol_data.proj,
+        pol_data.crs,
         pol_data.x,
         pol_data.y,
         nnear=4,
@@ -82,7 +82,7 @@ def test_get_bincoords_at_points(pol_data):
         pol_data.r,
         pol_data.az,
         pol_data.site,
-        pol_data.proj,
+        pol_data.crs,
         pol_data.x,
         pol_data.y,
         nnear=4,

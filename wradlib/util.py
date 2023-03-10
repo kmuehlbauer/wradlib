@@ -1133,7 +1133,7 @@ def cross_section_ppi(
     tolerance=None,
     real_beams=False,
     bw=1,
-    proj=None,
+    crs=None,
     npl=1000,
 ):
     """Cut a cross section from PPI volume scans
@@ -1177,7 +1177,7 @@ def cross_section_ppi(
         according to their width.
     bw : float, optional
         beam width in degrees (defaults to 1 degree). This is only used if "real_beams=True".
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`, :py:class:`cartopy.crs.CRS` or None
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`, :py:class:`cartopy.crs.CRS` or None
         Projection to use with :py:class:`wradlib.georef.xarray.georeference_dataset`.
         If GDAL OSR SRS, output is in this projection, else AEQD.
     npl : int
@@ -1273,7 +1273,7 @@ def cross_section_ppi(
         ds = ds.sortby("elevation")
 
     # Georeference the data
-    ds = ds.pipe(georef.georeference_dataset, proj=proj)
+    ds = ds.pipe(georef.georeference, crs=crs)
 
     try:
         return ds.sel(azimuth=azimuth, method=method, tolerance=tolerance)

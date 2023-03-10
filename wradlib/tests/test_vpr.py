@@ -17,7 +17,7 @@ def help_data():
     @dataclass(init=False, repr=False, eq=False)
     class Data:
         site = (7.0, 53.0, 100.0)
-        proj = georef.epsg_to_osr(31467)
+        crs = georef.epsg_to_osr(31467)
         az = np.arange(0.0, 360.0, 2.0)
         r = np.arange(0, 50000, 1000)
         el = 2.5
@@ -28,7 +28,7 @@ def help_data():
 @requires_gdal
 def test_volcoords_from_polar(help_data):
     coords = vpr.volcoords_from_polar(
-        help_data.site, help_data.el, help_data.az, help_data.r, proj=help_data.proj
+        help_data.site, help_data.el, help_data.az, help_data.r, crs=help_data.crs
     )
     assert coords.shape == (9000, 3)
 
@@ -37,7 +37,7 @@ def test_volcoords_from_polar(help_data):
 def test_volcoords_from_polar_irregular(help_data):
     # oneazforall, onerange4all, one elev
     coords = vpr.volcoords_from_polar_irregular(
-        help_data.site, [help_data.el], help_data.az, help_data.r, proj=help_data.proj
+        help_data.site, [help_data.el], help_data.az, help_data.r, crs=help_data.crs
     )
     assert coords.shape == (9000, 3)
 
@@ -47,7 +47,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         help_data.az,
         help_data.r,
-        proj=help_data.proj,
+        crs=help_data.crs,
     )
     assert coords.shape == (18000, 3)
 
@@ -57,7 +57,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         [help_data.az, help_data.az],
         help_data.r,
-        proj=help_data.proj,
+        crs=help_data.crs,
     )
     assert coords.shape == (18000, 3)
 
@@ -67,7 +67,7 @@ def test_volcoords_from_polar_irregular(help_data):
         [help_data.el, 5.0],
         help_data.az,
         [help_data.r, help_data.r],
-        proj=help_data.proj,
+        crs=help_data.crs,
     )
     assert coords.shape == (18000, 3)
 
@@ -83,7 +83,7 @@ def test_synthetic_polar_volume(help_data):
         az = np.arange(0.0, 360.0, 2.0)
         r = np.arange(0, vals[0] * vals[1], vals[1])
         xyz_ = vpr.volcoords_from_polar(
-            help_data.site, vals[2], az, r, proj=help_data.proj
+            help_data.site, vals[2], az, r, crs=help_data.crs
         )
         xyz = np.vstack((xyz, xyz_))
 
@@ -104,7 +104,7 @@ def test_make_3d_grid(help_data):
     horiz_res = 4000.0
     vert_res = 1000.0
     outxyz, outshape = vpr.make_3d_grid(
-        help_data.site, help_data.proj, maxrange, maxalt, horiz_res, vert_res
+        help_data.site, help_data.crs, maxrange, maxalt, horiz_res, vert_res
     )
     assert outshape == (6, 26, 26)
     assert outxyz.shape == (4056, 3)
@@ -115,7 +115,7 @@ def cart_data():
     @dataclass(init=False, repr=False, eq=False)
     class Data:
         site = (7.0, 53.0, 100.0)
-        proj = georef.epsg_to_osr(31467)
+        crs = georef.epsg_to_osr(31467)
         az = np.arange(0.0, 360.0, 2.0) + 1.0
         r = np.arange(0.0, 50000.0, 1000.0)
         elev = np.array([1.0, 3.0, 5.0, 10.0])
@@ -126,10 +126,10 @@ def cart_data():
         maxalt = 8000.0
         horiz_res = 4000.0
         vert_res = 1000.0
-        xyz = vpr.volcoords_from_polar(site, elev, az, r, proj=proj)
+        xyz = vpr.volcoords_from_polar(site, elev, az, r, crs=crs)
         data = vpr.synthetic_polar_volume(xyz)
         trgxyz, trgshape = vpr.make_3d_grid(
-            site, proj, maxrange, maxalt, horiz_res, vert_res
+            site, crs, maxrange, maxalt, horiz_res, vert_res
         )
 
     yield Data

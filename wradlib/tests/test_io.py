@@ -1250,7 +1250,7 @@ def test__check_src():
     proj_gk2 = osr.SpatialReference()
     proj_gk2.ImportFromEPSG(31466)
     filename = util.get_wradlib_data_file("shapefiles/agger/agger_merge.shp")
-    assert len(io.VectorSource(filename, srs=proj_gk2).data) == 13
+    assert len(io.VectorSource(filename, trg_crs=proj_gk2).data) == 13
 
 
 @requires_geos
@@ -1341,10 +1341,10 @@ def test_get_geom_properties():
     util.get_wradlib_data_file("shapefiles/agger/agger_merge.shx")
     from osgeo import osr
 
-    proj = osr.SpatialReference()
-    proj.ImportFromEPSG(31466)
+    crs = osr.SpatialReference()
+    crs.ImportFromEPSG(31466)
     filename = util.get_wradlib_data_file("shapefiles/agger/agger_merge.shp")
-    test = io.VectorSource(filename, proj)
+    test = io.VectorSource(filename, crs)
     np.testing.assert_array_equal(
         [[76722499.98474795]], test.get_geom_properties(["Area"], filt=("FID", 1))
     )
@@ -1375,10 +1375,10 @@ def test_dump_raster():
     util.get_wradlib_data_file("shapefiles/agger/agger_merge.shx")
     from osgeo import osr
 
-    proj = osr.SpatialReference()
-    proj.ImportFromEPSG(31466)
+    crs = osr.SpatialReference()
+    crs.ImportFromEPSG(31466)
     filename = util.get_wradlib_data_file("shapefiles/agger/agger_merge.shp")
-    test = io.VectorSource(filename, srs=proj)
+    test = io.VectorSource(filename, trg_crs=crs)
     test.dump_raster(
         tempfile.NamedTemporaryFile(mode="w+b").name,
         driver="netCDF",

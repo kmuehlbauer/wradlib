@@ -112,15 +112,15 @@ def read_safnwc(filename):
     ds = gdal.GetDriverByName("MEM").CreateCopy("out", ds1, 0)
 
     try:
-        proj = osr.SpatialReference()
-        proj.ImportFromProj4(ds.GetMetadata()["PROJECTION"])
+        crs = osr.SpatialReference()
+        crs.ImportFromProj4(ds.GetMetadata()["PROJECTION"])
     except KeyError:
         raise KeyError("WRADLIB: Projection is missing for satellite file {filename}")
 
     geotransform = root.GetMetadata()["GEOTRANSFORM_GDAL_TABLE"].split(",")
     geotransform[0] = root.GetMetadata()["XGEO_UP_LEFT"]
     geotransform[3] = root.GetMetadata()["YGEO_UP_LEFT"]
-    ds.SetProjection(proj.ExportToWkt())
+    ds.SetProjection(crs.ExportToWkt())
     ds.SetGeoTransform([float(x) for x in geotransform])
 
     return ds
@@ -229,8 +229,8 @@ class VectorSource:
     data : sequence or str
         sequence of source points (shape Nx2) or polygons (shape NxMx2) or
         Vector File (GDAL/OGR)  filename containing source points/polygons
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
-        SRS describing projection source data should be projected to
+    trg_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
+        GDAL OSR SRS describing target CRS the source data should be projected to
 
     Keyword Arguments
     -----------------
@@ -241,8 +241,8 @@ class VectorSource:
     mode : str
         Return type of class access functions/properties.
         Can be either of "numpy", "geo" and "ogr", defaults to "numpy".
-    projection_source : :py:class:`gdal:osgeo.osr.SpatialReference`
-        SRS describing projection source in which data is provided in.
+    src_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
+        GDAL OGR SRS describing projection source in which data is provided in.
 
     Warning
     -------
@@ -254,12 +254,12 @@ class VectorSource:
     See :ref:`/notebooks/fileio/wradlib_vector_data.ipynb`.
     """
 
-    def __init__(self, data=None, srs=None, name="layer", source=0, **kwargs):
-        self._srs = srs
+    def __init__(self, data=None, trg_crs=None, name="layer", source=0, **kwargs):
+        self._trg_crs = trg_crs
         self._name = name
         self._geo = None
         self._mode = kwargs.get("mode", "numpy")
-        self._src_srs = kwargs.get("projection_source", None)
+        self._src_crs = kwargs.get("src_crs", None)
         if data is not None:
             if isinstance(data, (np.ndarray, list)):
                 self._ds = self._check_src(data)
@@ -503,10 +503,8 @@ class VectorSource:
             "ESRI Shapefile", os.path.join("/vsimem", tmpfile), gdal_type=gdal.OF_VECTOR
         )
         src = np.array(src)
-        if self._src_srs is not None:
-            src = georef.reproject(
-                src, projection_source=self._src_srs, projection_target=self._srs
-            )
+        if self._src_crs is not None and self._src_crs is not None:
+            src = georef.reproject(src, src_crs=self._src_crs, trg_crs=self._trg_crs)
         # create memory datasource, layer and create features
         if src.ndim == 2:
             geom_type = ogr.wkbPoint
@@ -515,7 +513,7 @@ class VectorSource:
             geom_type = ogr.wkbPolygon
         fields = [("index", ogr.OFTInteger)]
         georef.vector.ogr_create_layer(
-            ogr_src, self._name, srs=self._srs, geom_type=geom_type, fields=fields
+            ogr_src, self._name, crs=self._trg_crs, geom_type=geom_type, fields=fields
         )
         georef.vector.ogr_add_feature(ogr_src, src, name=self._name)
 
@@ -567,20 +565,20 @@ class VectorSource:
         ds_in, tmp_lyr = open_vector(filename, driver=driver, layer=source)
 
         # get spatial reference object
-        srs = tmp_lyr.GetSpatialRef()
+        crs = tmp_lyr.GetSpatialRef()
         # fall back to given projection
-        if srs is None:
-            srs = self._src_srs
+        if crs is None:
+            crs = self._src_crs
 
         # raise error as we can't do anything about it
-        if self._srs is None and srs is None:
+        if self._trg_crs is None and crs is None:
             raise ValueError(
                 f"Spatial reference missing from source file {filename}. "
                 f"Please provide a fitting spatial reference object"
             )
 
         # this will be combined with the above the future to raise unconditionally
-        if srs is None:
+        if crs is None:
             warnings.warn(
                 f"Spatial reference missing from source file {filename}. "
                 f"This will raise an error from wradlib version 2.0",
@@ -588,18 +586,18 @@ class VectorSource:
             )
 
         # reproject layer if necessary
-        if self._srs is not None and srs is not None and srs != self._srs:
+        if self._trg_crs is not None and crs is not None and crs != self._trg_crs:
             ogr_src_lyr = self.ds.CreateLayer(
-                self._name, self._srs, geom_type=ogr.wkbPolygon
+                self._name, self._trg_crs, geom_type=ogr.wkbPolygon
             )
             georef.vector.ogr_reproject_layer(
-                tmp_lyr, ogr_src_lyr, self._srs, src_srs=srs
+                tmp_lyr, ogr_src_lyr, self._trg_crs, src_crs=crs
             )
         else:
             # copy layer
             ogr_src_lyr = self.ds.CopyLayer(tmp_lyr, self._name)
-            if self._srs is None:
-                self._srs = srs
+            if self._trg_crs is None:
+                self._trg_crs = crs
 
         # flush everything
         del ds_in
@@ -651,10 +649,10 @@ class VectorSource:
         )
 
         ds_out.SetGeoTransform((x_min, pixel_size, 0, y_max, 0, -pixel_size))
-        proj = layer.GetSpatialRef()
-        if proj is None:
-            proj = self._srs
-        ds_out.SetProjection(proj.ExportToWkt())
+        crs = layer.GetSpatialRef()
+        if crs is None:
+            crs = self._trg_crs
+        ds_out.SetProjection(crs.ExportToWkt())
 
         band = ds_out.GetRasterBand(1)
         band.FlushCache()

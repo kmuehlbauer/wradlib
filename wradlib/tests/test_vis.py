@@ -64,12 +64,12 @@ def prj_data():
         el = np.arange(0, 90)
         th = np.zeros_like(az)
         az1 = np.ones_like(el) * 225
-        proj = georef.create_osr("dwd-radolan")
+        crs = georef.create_osr("dwd-radolan")
         da_ppi = georef.create_xarray_dataarray(img, r=r, phi=az, theta=th)
-        da_ppi = georef.georeference(da_ppi, proj=None)
+        da_ppi = georef.georeference(da_ppi, crs=None)
         print(da_ppi)
         da_rhi = georef.create_xarray_dataarray(img[0:90], r=r, phi=az1, theta=el)
-        da_rhi = georef.georeference(da_rhi, proj=None)
+        da_rhi = georef.georeference(da_rhi, crs=None)
 
     yield Data
 
@@ -102,7 +102,7 @@ def test_plot_ppi_proj(prj_data):
         site=(10.0, 45.0, 0.0),
         ranges=[2, 4, 8],
         angles=[0, 45, 90, 180, 270],
-        proj=prj_data.proj,
+        crs=prj_data.crs,
         line=dict(color="white", linestyle="solid"),
     )
 
@@ -115,14 +115,14 @@ def test_plot_ppi_xarray(prj_data):
     vis.plot(prj_data.da_ppi, func="contour")
     vis.plot(prj_data.da_ppi, func="contourf")
     vis.plot(prj_data.da_ppi, func="pcolormesh")
-    vis.plot(prj_data.da_ppi, proj="cg")
-    vis.plot(prj_data.da_ppi, proj="cg", func="contour")
-    vis.plot(prj_data.da_ppi, proj="cg", func="contourf")
-    vis.plot(prj_data.da_ppi, proj="cg", func="pcolormesh")
+    vis.plot(prj_data.da_ppi, crs="cg")
+    vis.plot(prj_data.da_ppi, crs="cg", func="contour")
+    vis.plot(prj_data.da_ppi, crs="cg", func="contourf")
+    vis.plot(prj_data.da_ppi, crs="cg", func="pcolormesh")
     fig = pl.figure()
     ax = fig.add_subplot(111)
     with pytest.raises(TypeError):
-        vis.plot(prj_data.da_ppi, proj={"rot": 0, "scale": 1}, func="pcolormesh", ax=ax)
+        vis.plot(prj_data.da_ppi, crs={"rot": 0, "scale": 1}, func="pcolormesh", ax=ax)
 
 
 @requires_matplotlib
@@ -133,21 +133,21 @@ def test_plot_ppi_xarray_accessor(prj_data):
     prj_data.da_ppi.wrl.vis.contour()
     prj_data.da_ppi.wrl.vis.contourf()
     prj_data.da_ppi.wrl.vis.pcolormesh()
-    prj_data.da_ppi.wrl.vis.plot(proj="cg")
-    prj_data.da_ppi.wrl.vis.contour(proj="cg")
-    prj_data.da_ppi.wrl.vis.contourf(proj="cg")
-    prj_data.da_ppi.wrl.vis.pcolormesh(proj="cg")
+    prj_data.da_ppi.wrl.vis.plot(crs="cg")
+    prj_data.da_ppi.wrl.vis.contour(crs="cg")
+    prj_data.da_ppi.wrl.vis.contourf(crs="cg")
+    prj_data.da_ppi.wrl.vis.pcolormesh(crs="cg")
     fig = pl.figure()
     ax = fig.add_subplot(111)
     with pytest.raises(TypeError):
-        prj_data.da_ppi.wrl.vis.pcolormesh(proj={"rot": 0, "scale": 1}, ax=ax)
+        prj_data.da_ppi.wrl.vis.pcolormesh(crs={"rot": 0, "scale": 1}, ax=ax)
 
 
 @requires_matplotlib
 @requires_gdal
 def test_plot_ppi_xarray_proj(prj_data):
     with pytest.raises(TypeError):
-        prj_data.da_ppi.wrl.vis.pcolormesh(proj=prj_data.proj)
+        prj_data.da_ppi.wrl.vis.pcolormesh(crs=prj_data.crs)
 
 
 @requires_matplotlib
@@ -160,7 +160,7 @@ def test_plot_ppi_cartopy(prj_data):
         pytest.skip("fails for cartopy < 0.18.0 and matplotlib >= 3.3.0")
     site = (7, 45, 0.0)
     map_proj = cartopy.crs.Mercator(central_longitude=site[1])
-    vis.plot(prj_data.da_ppi, proj=map_proj)
+    vis.plot(prj_data.da_ppi, crs=map_proj)
     assert isinstance(pl.gca(), cartopy.mpl.geoaxes.GeoAxes)
     fig = pl.figure(figsize=(10, 10))
     ax = fig.add_subplot(111, projection=map_proj)
@@ -180,41 +180,41 @@ def test_plot_rhi_xarray(prj_data):
     prj_data.da_rhi.wrl.vis.contour()
     prj_data.da_rhi.wrl.vis.contourf()
     prj_data.da_rhi.wrl.vis.pcolormesh()
-    prj_data.da_rhi.wrl.vis.plot(proj="cg")
-    prj_data.da_rhi.wrl.vis.contour(proj="cg")
-    prj_data.da_rhi.wrl.vis.contourf(proj="cg")
-    prj_data.da_rhi.wrl.vis.pcolormesh(proj="cg")
+    prj_data.da_rhi.wrl.vis.plot(crs="cg")
+    prj_data.da_rhi.wrl.vis.contour(crs="cg")
+    prj_data.da_rhi.wrl.vis.contourf(crs="cg")
+    prj_data.da_rhi.wrl.vis.pcolormesh(crs="cg")
 
 
 @requires_matplotlib
 def test_plot_cg_ppi(pol_data):
-    vis.plot(pol_data.da_ppi, proj="cg")
-    vis.plot(pol_data.da_ppi, proj="cg")
+    vis.plot(pol_data.da_ppi, crs="cg")
+    vis.plot(pol_data.da_ppi, crs="cg")
     cgax = pl.gca()
-    vis.plot(pol_data.da_ppi, proj="cg", ax=cgax)
+    vis.plot(pol_data.da_ppi, crs="cg", ax=cgax)
     fig, ax = pl.subplots(2, 2)
     with pytest.raises(TypeError):
-        vis.plot(pol_data.da_ppi, proj="cg", ax=ax[0, 0])
-    vis.plot(pol_data.da_ppi, proj="cg", ax=111)
-    vis.plot(pol_data.da_ppi, proj="cg", ax=121)
-    vis.plot(pol_data.da_ppi, proj="cg")
-    vis.plot(pol_data.da_ppi, func="contour", proj="cg")
-    vis.plot(pol_data.da_ppi, func="contourf", proj="cg")
-    vis.plot(pol_data.da_ppi, func="contourf", proj="cg")
+        vis.plot(pol_data.da_ppi, crs="cg", ax=ax[0, 0])
+    vis.plot(pol_data.da_ppi, crs="cg", ax=111)
+    vis.plot(pol_data.da_ppi, crs="cg", ax=121)
+    vis.plot(pol_data.da_ppi, crs="cg")
+    vis.plot(pol_data.da_ppi, func="contour", crs="cg")
+    vis.plot(pol_data.da_ppi, func="contourf", crs="cg")
+    vis.plot(pol_data.da_ppi, func="contourf", crs="cg")
 
 
 @requires_matplotlib
 def test_plot_cg_rhi(pol_data):
     da = pol_data.da_rhi
-    vis.plot(da, proj="cg")
+    vis.plot(da, crs="cg")
     cgax = pl.gca()
-    vis.plot(da, proj="cg", ax=cgax)
+    vis.plot(da, crs="cg", ax=cgax)
     fig, ax = pl.subplots(2, 2)
     with pytest.raises(TypeError):
-        vis.plot(da, proj="cg", ax=ax[0, 0])
-    vis.plot(da, proj="cg")
-    vis.plot(da, func="contour", proj="cg")
-    vis.plot(da, func="contourf", proj="cg")
+        vis.plot(da, crs="cg", ax=ax[0, 0])
+    vis.plot(da, crs="cg")
+    vis.plot(da, func="contour", crs="cg")
+    vis.plot(da, func="contourf", crs="cg")
 
 
 @requires_matplotlib
