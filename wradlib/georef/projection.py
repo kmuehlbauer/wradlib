@@ -16,7 +16,7 @@ Projection Functions
 __all__ = [
     "reproject",
     "create_osr",
-    "proj4_to_osr",
+    "projstr_to_osr",
     "epsg_to_osr",
     "wkt_to_osr",
     "get_default_projection",
@@ -194,13 +194,18 @@ Georeferencing-and-Projection`.
     return crs
 
 
-def proj4_to_osr(proj4str):
-    """Transform a proj4 string to an osr spatial reference object
+def projstr_to_osr(projstr):
+    """Transform a PROJ string to an osr spatial reference object
 
     Parameters
     ----------
-    proj4str : str
-        Proj4 string describing projection
+    projstr : str
+        PROJ string describing projection
+
+    Returns
+    -------
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
+        GDAL OSR SRS object defining projection
 
     Examples
     --------
@@ -209,12 +214,12 @@ def proj4_to_osr(proj4str):
 
     """
     crs = osr.SpatialReference()
-    crs.ImportFromProj4(proj4str)
+    crs.ImportFromProj4(projstr)
     crs.AutoIdentifyEPSG()
 
     if crs.Validate() == ogr.OGRERR_CORRUPT_DATA:
         raise ValueError(
-            "proj4str validates to 'ogr.OGRERR_CORRUPT_DATA'"
+            "projstr validates to 'ogr.OGRERR_CORRUPT_DATA'"
             "and can't be imported as OSR object"
         )
     return crs
@@ -572,13 +577,13 @@ def get_earth_projection(model="ellipsoid"):
     return crs
 
 
-def get_radar_projection(sitecoords):
+def get_radar_projection(site):
     """Get the native radar projection which is an azimuthal equidistant projection
     centered at the site using WGS84.
 
     Parameters
     ----------
-    sitecoords : sequence
+    site : sequence
         the WGS84 lon / lat coordinates of the radar location
 
     Returns
@@ -589,7 +594,7 @@ def get_radar_projection(sitecoords):
     """
     crs = osr.SpatialReference()
     crs.SetProjCS("Unknown Azimuthal Equidistant")
-    crs.SetAE(sitecoords[1], sitecoords[0], 0, 0)
+    crs.SetAE(site[1], site[0], 0, 0)
 
     return crs
 

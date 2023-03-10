@@ -364,7 +364,7 @@ def _plot_beam(r, alt, beamradius, *, ax=None, label=None):
 def plot_scan_strategy(
     ranges,
     elevs,
-    sitecoords,
+    site,
     *,
     beamwidth=1.0,
     vert_res=500.0,
@@ -386,7 +386,7 @@ def plot_scan_strategy(
         sequence or array of float ranges
     elevs : sequence of float or :class:`numpy:numpy.ndarray`
         elevation angles
-    sitecoords : sequence of tuple or :class:`numpy:numpy.ndarray`
+    site : sequence of tuple or :class:`numpy:numpy.ndarray`
         radar site coordinates (longitude, latitude, altitude)
     beamwidth : float
         3dB width of the radar beam, defaults to 1.0 deg.
@@ -434,7 +434,7 @@ def plot_scan_strategy(
     if maxrange is None:
         maxrange = ranges.max()
 
-    xyz, rad = georef.spherical_to_xyz(ranges, az, elevs, sitecoords, squeeze=True)
+    xyz, rad = georef.spherical_to_xyz(ranges, az, elevs, site, squeeze=True)
 
     add_title = ""
     if terrain is True:
@@ -464,7 +464,7 @@ def plot_scan_strategy(
         er = 6370000
         # calculate beam_height and arc_distance for ke=1
         # means line of sight
-        ade = georef.bin_distance(ranges, 0, sitecoords[2], re=er, ke=1.0)
+        ade = georef.bin_distance(ranges, 0, site[2], re=er, ke=1.0)
         nn0 = np.zeros_like(ranges)
         ecp = nn0 + er
         # theta (arc_distance sector angle)
@@ -542,7 +542,7 @@ def plot_scan_strategy(
             beamradius = util.half_power_radius(ranges, beamwidth)
         else:
             plrange = np.insert(groundrange, 0, 0)
-            plalt = np.insert(alt, 0, sitecoords[2])
+            plalt = np.insert(alt, 0, site[2])
             beamradius = util.half_power_radius(plrange, beamwidth)
         _, center, edge = _plot_beam(
             plrange, plalt, beamradius, label=f"{el:4.1f}°", ax=paax
@@ -575,7 +575,7 @@ def plot_scan_strategy(
     ax.add_artist(leg1)
 
     # set axes labels
-    ax.set_title(f"Radar Scan Strategy - {sitecoords}" + add_title)
+    ax.set_title(f"Radar Scan Strategy - {site}" + add_title)
     caax.set_xlabel(f"Range ({units})")
     caax.set_ylabel(f"Altitude ({units})")
 

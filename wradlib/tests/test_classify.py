@@ -99,7 +99,7 @@ def cloudtype_data():
     rscale = int(pvol["dataset1/where"]["rscale"])
     elangle = pvol["dataset1/where"]["elangle"]
     coord = georef.sweep_centroids(nrays, rscale, nbins, elangle)
-    sitecoords = (
+    site = (
         pvol["where"]["lon"],
         pvol["where"]["lat"],
         pvol["where"]["height"],
@@ -109,7 +109,7 @@ def cloudtype_data():
         coord[..., 0],
         coord[..., 1],
         coord[..., 2],
-        sitecoords,
+        site,
         re=6370040.0,
         ke=4.0 / 3.0,
     )

@@ -382,7 +382,7 @@ def read_gamic_hdf5(filename, *, wanted_elevations=None, wanted_moments=None):
             vattrs["Longitude"] = f["where"].attrs.get("lon")
             vattrs["Height"] = f["where"].attrs.get("height")
             # check whether its useful to implement that feature
-            # vattrs['sitecoords'] = (vattrs['Longitude'], vattrs['Latitude'],
+            # vattrs['site'] = (vattrs['Longitude'], vattrs['Latitude'],
             #                         vattrs['Height'])
             attrs["VOL"] = vattrs
 

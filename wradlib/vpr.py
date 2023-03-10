@@ -237,12 +237,12 @@ class CAPPI(CartesianVolume):
         >>> elevs  = np.array([0.5,1.5,2.4,3.4,4.3,5.3,6.2,7.5,8.7,10,12,14,16.7,19.5])
         >>> azims  = np.arange(0., 360., 1.)
         >>> ranges = np.arange(0., 120000., 1000.)
-        >>> sitecoords = (120.255547,14.924218,500.)
+        >>> site = (120.255547,14.924218,500.)
         >>> crs = osr.SpatialReference()
         >>> _ = crs.ImportFromEPSG(32651)
         >>> # create Cartesian coordinates corresponding the location of the
         >>> # polar volume bins
-        >>> polxyz  = wradlib.vpr.volcoords_from_polar(sitecoords, elevs,
+        >>> polxyz  = wradlib.vpr.volcoords_from_polar(site, elevs,
         ...                                            azims, ranges, crs=crs)  # noqa
         >>> poldata = wradlib.vpr.synthetic_polar_volume(polxyz)
         >>> # this is the shape of our polar volume
@@ -402,12 +402,12 @@ def blindspots(center, gridcoords, minelev, maxelev, maxrange):
     return below, above, out_of_range
 
 
-def volcoords_from_polar(sitecoords, elevs, azimuths, ranges, *, crs=None):
+def volcoords_from_polar(site, elevs, azimuths, ranges, *, crs=None):
     """Create Cartesian coordinates for regular polar volumes
 
     Parameters
     ----------
-    sitecoords : tuple
+    site : tuple
         sequence of three floats indicating the radar position
         (longitude in decimal degrees, latitude in decimal degrees,
         height a.s.l. in meters)
@@ -435,19 +435,19 @@ def volcoords_from_polar(sitecoords, elevs, azimuths, ranges, *, crs=None):
     el, az, r = util.meshgrid_n(elevs, azimuths, ranges)
 
     # get projected coordinates
-    coords = georef.spherical_to_proj(r, az, el, sitecoords, crs=crs)
+    coords = georef.spherical_to_proj(r, az, el, site, crs=crs)
     coords = coords.reshape(-1, 3)
 
     return coords
 
 
-def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, *, crs=None):
+def volcoords_from_polar_irregular(site, elevs, azimuths, ranges, *, crs=None):
     """Create Cartesian coordinates for polar volumes with irregular \
     sweep specifications
 
     Parameters
     ----------
-    sitecoords : tuple
+    site : tuple
         sequence of three floats indicating the radar position
         (longitude in decimal degrees, latitude in decimal degrees,
         height a.s.l. in meters)
@@ -515,7 +515,7 @@ def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, *, crs=N
             onerange4all = False
     if oneaz4all and onerange4all:
         # this is the simple way
-        return volcoords_from_polar(sitecoords, elevs, azimuths, ranges, crs=crs)
+        return volcoords_from_polar(site, elevs, azimuths, ranges, crs=crs)
     # No simply way, so we need to construct the coordinates arrays for
     # each elevation angle
     # but first adapt input arrays to this task
@@ -533,19 +533,19 @@ def volcoords_from_polar_irregular(sitecoords, elevs, azimuths, ranges, *, crs=N
         az = np.append(az, az_tmp.ravel())
         r = np.append(r, r_tmp.ravel())
     # get projected coordinates
-    coords = georef.spherical_to_proj(r, az, el, sitecoords, crs=crs)
+    coords = georef.spherical_to_proj(r, az, el, site, crs=crs)
     coords = coords.reshape(-1, 3)
 
     return coords
 
 
-def make_3d_grid(sitecoords, crs, maxrange, maxalt, horiz_res, vert_res, *, minalt=0.0):
+def make_3d_grid(site, crs, maxrange, maxalt, horiz_res, vert_res, *, minalt=0.0):
     """Generate Cartesian coordinates for a regular 3-D grid based on \
     radar specs.
 
     Parameters
     ----------
-    sitecoords : tuple
+    site : tuple
         Radar location coordinates in lon, lat
     crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         GDAL OSR SRS describing projection
@@ -571,8 +571,8 @@ def make_3d_grid(sitecoords, crs, maxrange, maxalt, horiz_res, vert_res, *, mina
         float array of shape (num grid points, 3), a tuple of
         3 representing the grid shape
     """
-    center = georef.reproject(sitecoords[0], sitecoords[1], trg_crs=crs)
-    # minz = sitecoords[2]
+    center = georef.reproject(site[0], site[1], trg_crs=crs)
+    # minz = site[2]
     llx = center[0] - maxrange
     lly = center[1] - maxrange
     x = np.arange(llx, llx + 2 * maxrange + horiz_res, horiz_res)
