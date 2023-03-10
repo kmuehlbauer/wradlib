@@ -100,7 +100,7 @@ def read_edge_netcdf(filename, *, enforce_equidist=False):
         # Set additional metadata attributes
         attrs["az"] = az
         attrs["r"] = r
-        attrs["sitecoords"] = (attrs["Longitude"], attrs["Latitude"], attrs["Height"])
+        attrs["site"] = (attrs["Longitude"], attrs["Latitude"], attrs["Height"])
         attrs["time"] = dt.datetime.utcfromtimestamp(attrs.pop("Time"))
         attrs["max_range"] = data.shape[1] * binwidth
 

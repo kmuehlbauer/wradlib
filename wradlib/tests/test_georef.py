@@ -376,9 +376,9 @@ def test_spherical_to_polyvert():
 def test_spherical_to_centroids():
     r = np.array([10000.0, 10100.0])
     az = np.array([45.0, 90.0])
-    sitecoords = (9.0, 48.0, 0.0)
+    site = (9.0, 48.0, 0.0)
     sph = georef.get_default_projection()
-    centroids = georef.spherical_to_centroids(r, az, 0, sitecoords, crs=sph)
+    centroids = georef.spherical_to_centroids(r, az, 0, site, crs=sph)
     arr = np.asarray(
         [
             [[9.09439583, 48.06323717, 6.0], [9.09534571, 48.06387232, 6.0]],
@@ -387,7 +387,7 @@ def test_spherical_to_centroids():
     )
     np.testing.assert_array_almost_equal(centroids, arr, decimal=3)
 
-    centroids, pr = georef.spherical_to_centroids(r, az, 0, sitecoords)
+    centroids, pr = georef.spherical_to_centroids(r, az, 0, site)
     arr = np.asarray(
         [
             [[7.0357090e03, 7.0357090e03, 6.0], [7.1064194e03, 7.1064194e03, 6.0]],
@@ -567,13 +567,13 @@ def test_proj4_to_osr():
         "+units=m +no_defs"
     )
 
-    crs = georef.proj4_to_osr(projstr)
+    crs = georef.projstr_to_osr(projstr)
     p4 = crs.ExportToProj4()
     srs2 = osr.SpatialReference()
     srs2.ImportFromProj4(p4)
     assert crs.IsSame(srs2)
     with pytest.raises(ValueError):
-        georef.proj4_to_osr("+proj=lcc1")
+        georef.projstr_to_osr("+proj=lcc1")
 
 
 @requires_gdal
@@ -687,13 +687,13 @@ def test_wkt_to_osr(wgs84):
 
 @requires_gdal
 def test_get_radar_projection():
-    sitecoords = [5, 52, 90]
-    p0 = georef.get_radar_projection(sitecoords)
+    site = [5, 52, 90]
+    p0 = georef.get_radar_projection(site)
     assert p0.GetName() == "Unknown Azimuthal Equidistant"
     assert p0.IsProjected()
     assert p0.IsSameGeogCS(georef.get_default_projection())
-    assert p0.GetNormProjParm("latitude_of_center") == sitecoords[1]
-    assert p0.GetNormProjParm("longitude_of_center") == sitecoords[0]
+    assert p0.GetNormProjParm("latitude_of_center") == site[1]
+    assert p0.GetNormProjParm("longitude_of_center") == site[0]
 
 
 @requires_gdal
@@ -1012,7 +1012,7 @@ def test_get_radolan_grid_equality(grid_data):
         f"+k={scale:10.8f} +x_0=0 +y_0=0 +a=6370040 +b=6370040 "
         "+to_meter=1000 +no_defs"
     )
-    proj_stereo = georef.proj4_to_osr(dwd_string)
+    proj_stereo = georef.projstr_to_osr(dwd_string)
 
     # create wgs84 projection osr object
     proj_wgs = osr.SpatialReference()
@@ -1186,7 +1186,7 @@ def sat_data():
         wgs84 = georef.get_default_projection()
         a = wgs84.GetSemiMajor()
         b = wgs84.GetSemiMinor()
-        rad = georef.proj4_to_osr(
+        rad = georef.projstr_to_osr(
             f"+proj=aeqd +lon_0={pr_lon[68, 0]:f} +lat_0={pr_lat[68, 0]:f} "
             f"+a={a:f} +b={b:f}"
         )

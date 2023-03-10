@@ -44,7 +44,7 @@ def spherical_to_xyz(
     r,
     phi,
     theta,
-    sitecoords,
+    site,
     *,
     re=None,
     ke=4.0 / 3.0,
@@ -52,7 +52,7 @@ def spherical_to_xyz(
     strict_dims=False,
 ):
     """Transforms spherical coordinates (r, phi, theta) to cartesian
-    coordinates (x, y, z) centered at sitecoords (aeqd).
+    coordinates (x, y, z) centered at site (aeqd).
 
     It takes the shortening of the great circle
     distance with increasing elevation angle as well as the resulting
@@ -66,7 +66,7 @@ def spherical_to_xyz(
         Contains the azimuthal angles in degree.
     theta: :class:`numpy:numpy.ndarray`
         Contains the elevation angles in degree.
-    sitecoords : sequence
+    site : sequence
         the lon / lat / alt coordinates of the radar location and its altitude
         a.m.s.l. (in meters)
 
@@ -92,30 +92,30 @@ def spherical_to_xyz(
     aeqd : :py:class:`gdal:osgeo.osr.SpatialReference`
         Destination Spatial Reference System (AEQD-Projection).
     """
-    centalt = sitecoords[2]
+    centalt = site[2]
 
     # if no radius is given, get the approximate radius of the WGS84
     # ellipsoid for the site's latitude
     if re is None:
-        re = projection.get_earth_radius(sitecoords[1])
+        re = projection.get_earth_radius(site[1])
         # Set up aeqd-projection sitecoord-centered, wgs84 datum and ellipsoid
         # use world azimuthal equidistant projection
         projstr = (
-            f"+proj=aeqd +lon_0={sitecoords[0]:f} +x_0=0 +y_0=0 "
-            f"+lat_0={sitecoords[1]:f} +ellps=WGS84 +datum=WGS84 "
+            f"+proj=aeqd +lon_0={site[0]:f} +x_0=0 +y_0=0 "
+            f"+lat_0={site[1]:f} +ellps=WGS84 +datum=WGS84 "
             "+units=m +no_defs"
         )
     else:
         # Set up aeqd-projection sitecoord-centered, assuming spherical earth
         # use Sphere azimuthal equidistant projection
         projstr = (
-            f"+proj=aeqd +lon_0={sitecoords[0]:f} +lat_0={sitecoords[1]:f} "
+            f"+proj=aeqd +lon_0={site[0]:f} +lat_0={site[1]:f} "
             f"+a={re:f} +b={re:f} +units=m +no_defs"
         )
 
     osr = import_optional("osgeo.osr")
     if has_import(osr):
-        aeqd = projection.proj4_to_osr(projstr)
+        aeqd = projection.projstr_to_osr(projstr)
     else:
         aeqd = projstr
 
@@ -173,7 +173,7 @@ def spherical_to_xyz(
 @spherical_to_xyz.register(DataArray)
 def _spherical_to_xyz_xarray(obj, **kwargs):
     """Transforms spherical coordinates (r, phi, theta) to cartesian
-    coordinates (x, y, z) centered at sitecoords (aeqd).
+    coordinates (x, y, z) centered at site (aeqd).
 
     It takes the shortening of the great circle
     distance with increasing elevation angle as well as the resulting
@@ -207,14 +207,14 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
         range=obj.range
     )
     theta = obj.elevation
-    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    site = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
     kwargs.setdefault("squeeze", True)
     out, aeqd = apply_ufunc(
         spherical_to_xyz,
         r,
         phi,
         theta,
-        sitecoords,
+        site,
         input_core_dims=[
             ["azimuth", "range"],
             ["azimuth", "range"],
@@ -231,9 +231,9 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
 
 
 @singledispatch
-def spherical_to_proj(r, phi, theta, sitecoords, *, crs=None, re=None, ke=4.0 / 3.0):
+def spherical_to_proj(r, phi, theta, site, *, crs=None, re=None, ke=4.0 / 3.0):
     """Transforms spherical coordinates (r, phi, theta) to projected
-    coordinates centered at sitecoords in given projection.
+    coordinates centered at site in given projection.
 
     It takes the shortening of the great circle
     distance with increasing elevation angle as well as the resulting
@@ -247,10 +247,10 @@ def spherical_to_proj(r, phi, theta, sitecoords, *, crs=None, re=None, ke=4.0 / 
         Contains the azimuthal angles.
     theta: :class:`numpy:numpy.ndarray`
         Contains the elevation angles.
-    sitecoords : sequence
+    site : sequence
         the lon / lat coordinates of the radar location and its altitude
         a.m.s.l. (in meters)
-        if sitecoords is of length two, altitude is assumed to be zero
+        if site is of length two, altitude is assumed to be zero
 
     Keyword Arguments
     -----------------
@@ -302,7 +302,7 @@ Georeferencing-and-Projection`.
     if crs is None:
         crs = projection.get_default_projection()
 
-    xyz, aeqd = spherical_to_xyz(r, phi, theta, sitecoords, re=re, ke=ke, squeeze=True)
+    xyz, aeqd = spherical_to_xyz(r, phi, theta, site, re=re, ke=ke, squeeze=True)
 
     # reproject aeqd to destination projection
     coords = projection.reproject(xyz, src_crs=aeqd, trg_crs=crs)
@@ -314,7 +314,7 @@ Georeferencing-and-Projection`.
 @spherical_to_proj.register(DataArray)
 def _spherical_to_proj_xarray(obj, **kwargs):
     """Transforms spherical coordinates (r, phi, theta) to projected
-    coordinates centered at sitecoords in given projection.
+    coordinates centered at site in given projection.
 
     It takes the shortening of the great circle
     distance with increasing elevation angle as well as the resulting
@@ -347,13 +347,13 @@ def _spherical_to_proj_xarray(obj, **kwargs):
         range=obj.range
     )
     theta = obj.elevation
-    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    site = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
     out = apply_ufunc(
         spherical_to_proj,
         r,
         phi,
         theta,
-        sitecoords,
+        site,
         input_core_dims=[
             ["azimuth", "range"],
             ["azimuth", "range"],
@@ -436,7 +436,7 @@ def centroid_to_polyvert(centroid, delta, /):
 
 
 @singledispatch
-def spherical_to_polyvert(r, phi, theta, sitecoords, *, crs=None):
+def spherical_to_polyvert(r, phi, theta, site, *, crs=None):
     """
     Generate 3-D polygon vertices directly from spherical coordinates
     (r, phi, theta).
@@ -463,7 +463,7 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, *, crs=None):
         equidistant. An angle if 0 degree is pointing north.
     theta : float
         Elevation angle of scan
-    sitecoords : sequence
+    site : sequence
         the lon/lat/alt coordinates of the radar location
     crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         Destination Projection
@@ -490,8 +490,8 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, *, crs=None):
     >>> # az = np.array([0., 45., 90., 135., 180., 225., 270., 315., 360.])
     >>> az = np.array([0., 45., 90., 135., 180., 225., 270., 315.])
     >>> el = 1.0
-    >>> sitecoords = (9.0, 48.0, 0)
-    >>> polygons, aeqd = georef.spherical_to_polyvert(r, az, el, sitecoords)
+    >>> site = (9.0, 48.0, 0)
+    >>> polygons, aeqd = georef.spherical_to_polyvert(r, az, el, site)
     >>> # plot the resulting mesh
     >>> fig = pl.figure()
     >>> ax = fig.add_subplot(111)
@@ -514,7 +514,7 @@ def spherical_to_polyvert(r, phi, theta, sitecoords, *, crs=None):
     r, phi = np.meshgrid(r, phi)
 
     coords, aeqd = spherical_to_xyz(
-        r, phi, theta, sitecoords, squeeze=True, strict_dims=True
+        r, phi, theta, site, squeeze=True, strict_dims=True
     )
     if crs is not None:
         coords = projection.reproject(coords, src_crs=aeqd, trg_crs=crs)
@@ -575,7 +575,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
     r = obj.range + rdiff
     phi = obj.azimuth
     theta = obj.elevation.median("azimuth")
-    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    site = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
     output_core_dims = [["bins", "vert", "xy"]]
     if kwargs.get("crs", None) is None:
         output_core_dims.append([])
@@ -584,7 +584,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
         r,
         phi,
         theta.values,
-        sitecoords,
+        site,
         input_core_dims=[["range"], ["azimuth"], [None], [None]],
         output_core_dims=output_core_dims,
         dask="parallelized",
@@ -599,7 +599,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
 
 
 @singledispatch
-def spherical_to_centroids(r, phi, theta, sitecoords, *, crs=None):
+def spherical_to_centroids(r, phi, theta, site, *, crs=None):
     """
     Generate 3-D centroids of the radar bins from the sperical
     coordinates (r, phi, theta).
@@ -626,7 +626,7 @@ def spherical_to_centroids(r, phi, theta, sitecoords, *, crs=None):
         equidistant. An angle if 0 degree is pointing north.
     theta : float
         Elevation angle of scan
-    sitecoords : sequence
+    site : sequence
         the lon/lat/alt coordinates of the radar location
     crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         Destination Projection
@@ -653,7 +653,7 @@ def spherical_to_centroids(r, phi, theta, sitecoords, *, crs=None):
     # generate a polar grid and convert to lat/lon
     r, phi = np.meshgrid(r, phi)
 
-    coords, aeqd = spherical_to_xyz(r, phi, theta, sitecoords, squeeze=True)
+    coords, aeqd = spherical_to_xyz(r, phi, theta, site, squeeze=True)
 
     if crs is None:
         return coords, aeqd
@@ -708,7 +708,7 @@ def _spherical_to_centroids_xarray(obj, **kwargs):
     r = obj.range + rdiff
     phi = obj.azimuth
     theta = obj.elevation.median("azimuth")
-    sitecoords = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
+    site = (obj.longitude.values, obj.latitude.values, obj.altitude.values)
     output_core_dims = [["azimuth", "range", "xyz"]]
     if kwargs.get("crs", None) is None:
         output_core_dims.append([])
@@ -717,7 +717,7 @@ def _spherical_to_centroids_xarray(obj, **kwargs):
         r,
         phi,
         theta.values,
-        sitecoords,
+        site,
         input_core_dims=[["range"], ["azimuth"], [None], [None]],
         output_core_dims=output_core_dims,
         dask="parallelized",

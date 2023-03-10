@@ -47,7 +47,7 @@ class PolarNeighbours:
         (see :mod:`wradlib.georef` for documentation)
     az : :class:`numpy:numpy.ndarray`
         (see :mod:`wradlib.georef` for documentation)
-    sitecoords : sequence
+    site : sequence
         sequence of floats
         (see :mod:`wradlib.georef` for documentation)
     crs : :py:class:`gdal:osgeo.osr.SpatialReference`
@@ -68,14 +68,14 @@ class PolarNeighbours:
     See :ref:`/notebooks/verification/wradlib_verify_example.ipynb`.
     """
 
-    def __init__(self, r, az, sitecoords, crs, x, y, *, nnear=9):
+    def __init__(self, r, az, site, crs, x, y, *, nnear=9):
         self.nnear = nnear
         self.az = az
         self.r = r
         self.x = x
         self.y = y
         # compute the centroid coordinates in crs
-        bin_coords = polar.spherical_to_centroids(r, az, 0, sitecoords, crs=crs)
+        bin_coords = polar.spherical_to_centroids(r, az, 0, site, crs=crs)
         self.binx = bin_coords[..., 0].ravel()
         self.biny = bin_coords[..., 1].ravel()
         # compute the KDTree
