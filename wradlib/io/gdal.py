@@ -503,7 +503,7 @@ class VectorSource:
             "ESRI Shapefile", os.path.join("/vsimem", tmpfile), gdal_type=gdal.OF_VECTOR
         )
         src = np.array(src)
-        if self._src_crs is not None and self._src_crs is not None:
+        if self._src_crs and self._src_crs:
             src = georef.reproject(src, src_crs=self._src_crs, trg_crs=self._trg_crs)
         # create memory datasource, layer and create features
         if src.ndim == 2:

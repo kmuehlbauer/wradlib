@@ -109,7 +109,7 @@ def data_base():
         src = np.array([box0, box1])
         trg = np.array([box3, box4])
         dst = np.array([[box5], [box6]])
-        zdb = zonalstats.ZonalDataBase(src, trg=trg, trg_crs=crs)
+        zdb = zonalstats.ZonalDataBase(src, trg=trg, crs=crs)
         f = tempfile.NamedTemporaryFile(mode="w+b").name
         zdb.dump_vector(f)
 

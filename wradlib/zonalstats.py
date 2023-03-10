@@ -142,12 +142,12 @@ class ZonalDataBase:
             if isinstance(src, io.VectorSource):
                 self.src = src
             else:
-                self.src = io.VectorSource(src, name="src", src_crs=crs, **kwargs)
+                self.src = io.VectorSource(src, name="src", trg_crs=crs, **kwargs)
 
             if isinstance(trg, io.VectorSource):
                 self.trg = trg
             else:
-                self.trg = io.VectorSource(trg, name="trg", src_crs=crs, **kwargs)
+                self.trg = io.VectorSource(trg, name="trg", trg_crs=crs, **kwargs)
 
             self.dst = io.VectorSource(name="dst")
             self.dst.ds = self._create_dst_datasource(silent)
