@@ -1154,12 +1154,12 @@ class _radolan_file:
             )
 
         if attrs.get("formatversion", 3) >= 5:
-            proj = projection.create_osr("dwd-radolan-wgs84")
+            crs = projection.create_osr("dwd-radolan-wgs84")
         else:
-            proj = projection.create_osr("dwd-radolan-sphere")
+            crs = projection.create_osr("dwd-radolan-sphere")
 
         xlocs, ylocs = rect.get_radolan_coordinates(
-            self.dimensions["y"], self.dimensions["x"], proj=proj, mode="center"
+            self.dimensions["y"], self.dimensions["x"], crs=crs, mode="center"
         )
         xattrs = {
             "units": "m",

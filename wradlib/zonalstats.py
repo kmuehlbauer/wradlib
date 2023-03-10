@@ -118,14 +118,11 @@ class ZonalDataBase:
         (same unit as coordinates)
         Points/Polygons  will be considered inside the target if they are
         contained in the buffer.
-
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         OGR.SpatialReference will be used for DataSource object.
-        src and trg data have to be in the same srs-format
-
+        src and trg data have to be in the same crs-format
     silent : bool
         If True no ProgressBar is shown. Defaults to False.
-
 
     Examples
     --------
@@ -133,9 +130,9 @@ class ZonalDataBase:
 
     """
 
-    def __init__(self, src, *, trg=None, buf=0.0, srs=None, **kwargs):
+    def __init__(self, src, *, trg=None, buf=0.0, crs=None, **kwargs):
         self._buffer = buf
-        self._srs = srs
+        self._crs = crs
         silent = kwargs.pop("silent", False)
 
         if trg is None:
@@ -145,12 +142,12 @@ class ZonalDataBase:
             if isinstance(src, io.VectorSource):
                 self.src = src
             else:
-                self.src = io.VectorSource(src, name="src", srs=srs, **kwargs)
+                self.src = io.VectorSource(src, name="src", src_crs=crs, **kwargs)
 
             if isinstance(trg, io.VectorSource):
                 self.trg = trg
             else:
-                self.trg = io.VectorSource(trg, name="trg", srs=srs, **kwargs)
+                self.trg = io.VectorSource(trg, name="trg", src_crs=crs, **kwargs)
 
             self.dst = io.VectorSource(name="dst")
             self.dst.ds = self._create_dst_datasource(silent)
@@ -165,9 +162,9 @@ class ZonalDataBase:
         return self._count_intersections
 
     @property
-    def srs(self):
+    def crs(self):
         """Returns SpatialReferenceSystem object"""
-        return self._srs
+        return self._crs
 
     @property
     def isecs(self):
@@ -263,7 +260,7 @@ class ZonalDataBase:
 
         # create tmp dest layer
         self.tmp_lyr = georef.vector.ogr_create_layer(
-            ds_mem, "dst", srs=self._srs, geom_type=geom_type
+            ds_mem, "dst", crs=self._crs, geom_type=geom_type
         )
 
         trg_lyr.Intersection(
@@ -315,7 +312,7 @@ class ZonalDataBase:
         self.dst = io.VectorSource(filename, name="dst", source="dst")
 
         # get spatial reference object
-        self._srs = self.src.ds.GetLayer().GetSpatialRef()
+        self._crs = self.src.ds.GetLayer().GetSpatialRef()
 
     def _get_idx_weights(self):
         """Retrieve index and weight from dst DataSource"""
@@ -378,9 +375,9 @@ class ZonalDataPoly(ZonalDataBase):
         Polygons will be considered inside the target if they are contained
         in the buffer.
 
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         OGR.SpatialReference will be used for DataSource object.
-        src and trg data have to be in the same srs-format
+        src and trg data have to be in the same crs-format
 
     Examples
     --------
@@ -429,9 +426,9 @@ class ZonalDataPoint(ZonalDataBase):
         Points will be considered inside the target if they are contained
         in the buffer.
 
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         OGR.SpatialReference will be used for DataSource object.
-        src and trg data have to be in the same srs-format
+        src and trg data have to be in the same crs-format
 
     Examples
     --------
@@ -856,7 +853,7 @@ def grid_centers_to_vertices(x, y, dx, dy):
     return verts
 
 
-def get_clip_mask(coords, clippoly, *, srs=None):
+def get_clip_mask(coords, clippoly, *, crs=None):
     """Returns boolean mask of points ``coords`` inside polygon ``clippoly``
 
     Parameters
@@ -866,7 +863,7 @@ def get_clip_mask(coords, clippoly, *, srs=None):
     clippoly : :class:`numpy:numpy.ndarray`
         array of xy coords with shape (N,2) representing closed
         polygon coordinates
-    srs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         osr.SpatialReference
 
     Returns
@@ -877,7 +874,7 @@ def get_clip_mask(coords, clippoly, *, srs=None):
     """
     clip = [clippoly]
 
-    zd = ZonalDataPoint(coords.reshape(-1, coords.shape[-1]), trg=clip, srs=srs)
+    zd = ZonalDataPoint(coords.reshape(-1, coords.shape[-1]), trg=clip, crs=crs)
 
     # Subsetting in order to use only precipitating profiles
     src_mask = np.zeros(coords.shape[0:-1], dtype=np.bool_)

@@ -119,9 +119,7 @@ def cloudtype_data():
     val_sat = georef.read_gdal_values(sat_gdal)
     coord_sat = georef.read_gdal_coordinates(sat_gdal)
     proj_sat = georef.read_gdal_projection(sat_gdal)
-    coord_sat = georef.reproject(
-        coord_sat, projection_source=proj_sat, projection_target=proj_radar
-    )
+    coord_sat = georef.reproject(coord_sat, src_crs=proj_sat, trg_crs=proj_radar)
     coord_radar = coord
     interp = ipol.Nearest(
         coord_sat[..., 0:2].reshape(-1, 2), coord_radar[..., 0:2].reshape(-1, 2)

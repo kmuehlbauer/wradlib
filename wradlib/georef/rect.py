@@ -45,26 +45,26 @@ def get_radolan_coords(lon, lat, **kwargs):
 
     Keyword Arguments
     -----------------
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference` | str
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference` | str
         projection of the DWD grid with spheroid model or string `trig` to use
         trigonometric formulas for calculation (only for earth model - `sphere`).
         Defaults to None (earth model - sphere).
     """
     osr = import_optional("osgeo.osr")
     # use trig if osgeo.osr is not available
-    proj = kwargs.get("proj", None)
+    crs = kwargs.get("crs", None)
     trig = kwargs.get("trig", None)
     if trig is not None:
         if trig is True:
             warn(
                 "Keyword Argument ``trig`` will be removed in wradlib version 2.0. "
-                "Please use ``proj='trig'`` if you want to use trigonometric formulas.",
+                "Please use ``crs='trig'`` if you want to use trigonometric formulas.",
                 DeprecationWarning,
             )
-            proj = "trig"
-    if proj is None and not has_import(osr):
-        proj = "trig"
-    if proj == "trig":
+            crs = "trig"
+    if crs is None and not has_import(osr):
+        crs = "trig"
+    if crs == "trig":
         # calculation of x_0 and y_0 coordinates of radolan grid
         # as described in the format description
         phi_0 = np.radians(60)
@@ -78,17 +78,13 @@ def get_radolan_coords(lon, lat, **kwargs):
         y = -er * m_phi * np.cos(phi_m) * np.cos(lam)
     else:
         # create radolan projection osr object
-        if proj is None:
-            proj_stereo = projection.create_osr("dwd-radolan")
-        else:
-            proj_stereo = proj
+        if crs is None:
+            crs = projection.create_osr("dwd-radolan")
 
         # create wgs84 projection osr object
-        proj_wgs = projection.get_default_projection()
+        crs_wgs = projection.get_default_projection()
 
-        x, y = projection.reproject(
-            lon, lat, projection_source=proj_wgs, projection_target=proj_stereo
-        )
+        x, y = projection.reproject(lon, lat, src_crs=crs_wgs, trg_crs=crs)
 
     return x, y
 
@@ -114,7 +110,7 @@ def get_radolan_coordinates(nrows=None, ncols=None, **kwargs):
         'radolan' - lower left pixel coordinates
         'center' - pixel center coordinates
         'edge' - pixel edge coordinates
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference` | str
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference` | str
         projection of the DWD grid with spheroid model or string `trig` to use
         trigonometric formulas for calculation (only for earth model - `sphere`).
         Defaults to None (earth model - sphere).
@@ -146,16 +142,16 @@ def get_radolan_coordinates(nrows=None, ncols=None, **kwargs):
     }
 
     mode = kwargs.get("mode", "radolan")
-    proj = kwargs.get("proj", None)
+    crs = kwargs.get("crs", None)
     trig = kwargs.get("trig", None)
     if trig is not None:
         if trig is True:
             warn(
                 "Keyword Argument ``trig`` will be removed in wradlib version 2.0. "
-                "Please use ``proj='trig'`` if you want to use trigonometric formulas.",
+                "Please use ``crs='trig'`` if you want to use trigonometric formulas.",
                 DeprecationWarning,
             )
-            proj = "trig"
+            crs = "trig"
 
     if nrows and ncols:
         if not (isinstance(nrows, int) and isinstance(ncols, int)):
@@ -177,15 +173,15 @@ def get_radolan_coordinates(nrows=None, ncols=None, **kwargs):
     i_0 = griddefs[(nrows, ncols)]["i_0"]
     res = griddefs[(nrows, ncols)]["res"]
 
-    x_0, y_0 = get_radolan_coords(9.0, 51.0, proj=proj)
+    x_0, y_0 = get_radolan_coords(9.0, 51.0, crs=crs)
 
     if mode == "edge":
         ncols += 1
         nrows += 1
 
     # get from km to meter for meter-base projections
-    if proj is not None and proj != "trig":
-        lin = proj.GetLinearUnits()
+    if crs is not None and crs != "trig":
+        lin = crs.GetLinearUnits()
         if lin == 1.0:
             res *= 1000
             j_0 *= 1000
@@ -260,7 +256,7 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
         'radolan' - lower left pixel coordinates
         'center' - pixel center coordinates
         'edge' - pixel edge coordinates
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference` | str
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference` | str
         projection of the DWD grid with spheroid model or string `trig` to use
         trigonometric formulas for calculation (only for earth model - `sphere`).
         Defaults to None (earth model - sphere).
@@ -284,7 +280,7 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
 
     >>> # using pure trigonometric transformations
     >>> import wradlib.georef as georef
-    >>> radolan_grid = georef.get_radolan_grid(proj="trig")
+    >>> radolan_grid = georef.get_radolan_grid(crs="trig")
     >>> print("{0}, ({1:.4f}, {2:.4f})".format(radolan_grid.shape, *radolan_grid[0,0,:]))  # noqa
     (900, 900, 2), (-523.4622, -4658.6447)
 
@@ -309,27 +305,25 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
 
     wgs84 = kwargs.get("wgs84", False)
     mode = kwargs.get("mode", "radolan")
-    proj = kwargs.get("proj", None)
+    crs = kwargs.get("crs", None)
     trig = kwargs.get("trig", None)
     if trig is not None:
         if trig is True:
             warn(
                 "Keyword Argument ``trig`` will be removed in wradlib version 2.0. "
-                "Please use ``proj='trig'`` if you want to use trigonometric formulas.",
+                "Please use ``crs='trig'`` if you want to use trigonometric formulas.",
                 DeprecationWarning,
             )
-            proj = "trig"
+            crs = "trig"
 
-    x_arr, y_arr = get_radolan_coordinates(
-        nrows=nrows, ncols=ncols, mode=mode, proj=proj
-    )
+    x_arr, y_arr = get_radolan_coordinates(nrows=nrows, ncols=ncols, mode=mode, crs=crs)
 
     x, y = np.meshgrid(x_arr, y_arr)
 
     radolan_grid = np.dstack((x, y))
 
     if wgs84:
-        if proj == "trig":
+        if crs == "trig":
             # inverse projection
             lon0 = 10.0  # central meridian of projection
             lat0 = 60.0  # standard parallel of projection
@@ -344,25 +338,23 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
             radolan_grid = np.dstack((lon, lat))
         else:
             # create radolan projection osr object
-            if proj is None:
-                proj_stereo = projection.create_osr("dwd-radolan")
-            else:
-                proj_stereo = proj
+            if crs is None:
+                crs = projection.create_osr("dwd-radolan")
 
             # create wgs84 projection osr object
-            proj_wgs = projection.get_default_projection()
+            crs_wgs84 = projection.get_default_projection()
 
             radolan_grid = projection.reproject(
-                radolan_grid, projection_source=proj_stereo, projection_target=proj_wgs
+                radolan_grid, src_crs=crs, trg_crs=crs_wgs84
             )
 
     return radolan_grid
 
 
-def xyz_to_spherical(xyz, *, altitude=0, proj=None, ke=4.0 / 3.0):
+def xyz_to_spherical(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
     """Returns spherical representation (r, theta, phi) of given cartesian
     coordinates (x, y, z) with respect to the reference altitude (asl)
-    considering earth's geometry (proj).
+    considering earth's geometry (crs).
 
     Parameters
     ----------
@@ -371,7 +363,7 @@ def xyz_to_spherical(xyz, *, altitude=0, proj=None, ke=4.0 / 3.0):
     altitude : float
         Altitude (in meters)
         defaults to 0.
-    proj : :py:class:`gdal:osgeo.osr.SpatialReference`
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
         projection of the source coordinates (aeqd) with spheroid model
         defaults to None.
     ke : float
@@ -394,8 +386,8 @@ def xyz_to_spherical(xyz, *, altitude=0, proj=None, ke=4.0 / 3.0):
     # for the latitude_of_center, if no projection is given assume
     # spherical earth
     try:
-        lat0 = proj.GetProjParm("latitude_of_center")
-        re = projection.get_earth_radius(lat0, proj)
+        lat0 = crs.GetProjParm("latitude_of_center")
+        re = projection.get_earth_radius(lat0, crs)
     except Exception:
         re = 6371000.0
 
