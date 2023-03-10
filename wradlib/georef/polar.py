@@ -513,9 +513,7 @@ def spherical_to_polyvert(r, phi, theta, site, *, crs=None):
     # generate a grid of polar coordinates of bin corners
     r, phi = np.meshgrid(r, phi)
 
-    coords, aeqd = spherical_to_xyz(
-        r, phi, theta, site, squeeze=True, strict_dims=True
-    )
+    coords, aeqd = spherical_to_xyz(r, phi, theta, site, squeeze=True, strict_dims=True)
     if crs is not None:
         coords = projection.reproject(coords, src_crs=aeqd, trg_crs=crs)
 
