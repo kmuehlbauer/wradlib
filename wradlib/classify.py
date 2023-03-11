@@ -1088,6 +1088,7 @@ def _filter_window_distance_xarray(obj, **kwargs):
     return out
 
 
+@singledispatch
 def msf_index_indep(msf, idp, obs):
     """Retrieve membership function values based on independent observable
 
@@ -1120,6 +1121,23 @@ def msf_index_indep(msf, idp, obs):
     out[:, :, ~idxm.mask.flatten(), :] = msf[:, :, idxm.compressed(), :]
     out = np.reshape(out, ((msf.shape[0], msf.shape[1]) + obs.shape + (msf.shape[-1],)))
     return out
+
+
+@msf_index_indep.register(xr.Dataset)
+def _msf_index_indep_xarray(msf_ds, obs):
+    def wrap_digitize(data, bins=None):
+        return np.digitize(data, bins)
+
+    idp = msf_ds.idp.values
+    bins = np.append(idp, idp[-1] + (idp[-1] - idp[-2]))
+    idx = xr.apply_ufunc(wrap_digitize,
+                         obs,
+                         dask='parallelized',
+                         kwargs=dict(bins=bins),
+                         output_dtypes=['i4']) - 1
+    # select bins
+    idx = xr.where((idx >= 0) & (idx < bins.shape[0] - 2), idx, 0)
+    return msf_ds.isel(idp=idx)
 
 
 def trapezoid(msf, obs):
@@ -1160,6 +1178,29 @@ def trapezoid(msf, obs):
     return out
 
 
+def _trapezoid_xarray(msf, obs):
+    ones = ((obs >= msf[..., 1]) & (obs <= msf[..., 2]))
+    zeros = ((obs < msf[..., 0]) | (obs > msf[..., 3]))
+    lower = ((obs >= msf[..., 0]) & (obs < msf[..., 1]))
+    higher = ((obs > msf[..., 2]) & (obs <= msf[..., 3]))
+
+    obs_lower = obs - msf[..., 0]
+    msf_lower = msf[..., 1] - msf[..., 0]
+    low = (obs_lower / msf_lower)
+
+    obs_higher = obs - msf[..., 3]
+    msf_higher = msf[..., 2] - msf[..., 3]
+    high = (obs_higher / msf_higher)
+
+    ret = xr.zeros_like(obs)  # * np.nan
+    # ret = ret.where(zeros, 0).where(ones, 1).where(lower, low).where(higher, high)
+    ret = xr.where(ones, 1, ret)
+    ret = xr.where(lower, low, ret)
+    ret = xr.where(higher, high, ret)
+    return ret  # .where(ret == np.nan, 0)
+
+
+@singledispatch
 def fuzzyfi(msf, obs):
     """Iterate over all hmc-classes and retrieve memberships
 
@@ -1187,6 +1228,17 @@ def fuzzyfi(msf, obs):
     return out
 
 
+@fuzzyfi.register(xr.Dataset)
+def _fuzzyfi_xarray(msf_ds, hmc_ds, msf_obs_mapping):
+    fuzz_ds = xr.Dataset()
+    for mf, hm in msf_obs_mapping.items():
+        obs = hmc_ds[hm]
+        msf = msf_ds[mf]
+        fuzz_ds = fuzz_ds.assign({mf: trapezoid(msf, obs)})
+    return fuzz_ds.transpose("hmc", ...)
+
+
+@singledispatch
 def probability(data, weights):
     """Calculate probability of hmc-class for every data bin.
 
@@ -1213,6 +1265,30 @@ def probability(data, weights):
     return np.sum(data * weights, axis=1) / maxw
 
 
+@probability.register(xr.DataArray)
+def _probability_xarray(data, weights):
+    """Calculate probability of hmc-class for every data bin.
+
+    Parameters
+    ----------
+    data : xarray.Dataset
+        Dataset containing containing the membership probability values.
+    weights : :class:`numpy:numpy.ndarray`
+        Array of length (observables) containing the weights for
+        each observable.
+
+    Returns
+    -------
+    out : xarray.DataArray
+        Array containing weighted hmc-membership probabilities.
+    """
+    out = data.to_array(dim="obs")
+    w = weights.to_array(dim="obs")
+    out = (out * w).sum("obs") / w.sum("obs")
+    return out  # .transpose("hmc", ...)
+
+
+@singledispatch
 def classify(data, *, threshold=0.0):
     """Calculate probability of hmc-class for every data bin.
 
@@ -1256,6 +1332,35 @@ def classify(data, *, threshold=0.0):
     vals[:, mask] = 1.0
 
     return idx, vals
+
+
+@classify.register(xr.DataArray)
+def _classify_xarray(data, threshold=0.0):
+    """Calculate probability of hmc-class for every data bin.
+
+    Parameters
+    ----------
+    data : np.ndarray
+        Array which is of size (hmc-class, data.shape), containing the
+        weighted hmc-membership probability values.
+
+    Keyword Arguments
+    -----------------
+    threshold : float
+        Threshold value where probability is considered no precip,
+        defaults to 0
+
+    Returns
+    -------
+    out : xr.DataArray
+        DataArray containing containing probability scores.
+        No precip is added on the top.
+    """
+    # handle no precipitation
+    nop = xr.where(data.sum("hmc") / len(data.hmc) <= threshold, 1, 0)
+    nop = nop.assign_coords({"hmc": "NP"}).expand_dims(dim="hmc", axis=-1)
+    return xr.concat([data, nop], dim="hmc")
+
 
 
 class ClassifyMethods(util.XarrayMethods):
@@ -1302,3 +1407,38 @@ class ClassifyMethods(util.XarrayMethods):
             return filter_window_distance(self, *args, **kwargs)
         else:
             return filter_window_distance(self._obj, *args, **kwargs)
+
+    @util.docstring(_msf_index_indep_xarray)
+    def msf_index_indep(self, *args, **kwargs):
+        if not isinstance(self, ClassifyMethods):
+            return msf_index_indep(self, *args, **kwargs)
+        else:
+            return msf_index_indep(self._obj, *args, **kwargs)
+
+    @util.docstring(_fuzzyfi_xarray)
+    def fuzzyfi(self, *args, **kwargs):
+        if not isinstance(self, ClassifyMethods):
+            return fuzzyfi(self, *args, **kwargs)
+        else:
+            return fuzzyfi(self._obj, *args, **kwargs)
+
+    @util.docstring(_probability_xarray)
+    def probability(self, *args, **kwargs):
+        if not isinstance(self, ClassifyMethods):
+            return probability(self, *args, **kwargs)
+        else:
+            return probability(self._obj, *args, **kwargs)
+
+    @util.docstring(_classify_xarray)
+    def classify(self, *args, **kwargs):
+        if not isinstance(self, ClassifyMethods):
+            return classify(self, *args, **kwargs)
+        else:
+            return classify(self._obj, *args, **kwargs)
+
+    @util.docstring(_trapezoid_xarray)
+    def trapezoid(self, *args, **kwargs):
+        if not isinstance(self, ClassifyMethods):
+            return trapezoid(self, *args, **kwargs)
+        else:
+            return trapezoid(self._obj, *args, **kwargs)

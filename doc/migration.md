@@ -6,7 +6,7 @@ For {{wradlib}} 2.0 there have been quite some deprecations and additions. Most 
 
 The function signatures have been revisited with regard to [PEP570](https://peps.python.org/pep-0570/). Please look out for changes in the parameter-list, there might be changes on parameters being positional only, positional and keyword or keyword-only.
 
-The georeferencing submodule has undergone an alignment process for function parameters. For Coordinate Reference Systems (CRS) `crs`-kwarg is used for geographic CRS as well as projected CRS. If the function needs source and/or target, then `src_crs` and `trg_crs` is used respectively.
+The georeferencing submodule has undergone an alignment process for function parameters. For Coordinate Reference Systems (CRS) `crs`-kwarg is used for geographic CRS as well as projected CRS. If the function needs source and/or target, then `src_crs` and `trg_crs` is used respectively. At the same time the `site`/`sitecoords` have been aligned to `site`.
 
 The early experiments with {{xarray}} reading capabilities (deprecated) have been removed, the more mature {{xarray}} backend code has been ported to {{xradar}}-package from where {{wradlib}} is importing it.
 
