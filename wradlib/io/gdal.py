@@ -171,7 +171,7 @@ def gdal_create_dataset(
     return ds
 
 
-def write_raster_dataset(fpath, dataset, rformat, *, options=None, remove=False):
+def write_raster_dataset(fpath, dataset, *, driver="GTiff", options=None, remove=False):
     """Write raster dataset to file format
 
     Parameters
@@ -201,13 +201,13 @@ def write_raster_dataset(fpath, dataset, rformat, *, options=None, remove=False)
     if options is None:
         options = []
 
-    driver = gdal.GetDriverByName(rformat)
+    driver = gdal.GetDriverByName(driver)
     metadata = driver.GetMetadata()
 
     # check driver capability
     if not ("DCAP_CREATECOPY" in metadata and metadata["DCAP_CREATECOPY"] == "YES"):
         raise TypeError(
-            f"WRADLIB: Raster Driver {rformat} doesn't support CreateCopy() method."
+            f"WRADLIB: Raster Driver {driver} doesn't support CreateCopy() method."
         )
 
     if remove:
@@ -675,7 +675,7 @@ class VectorSource:
                 callback=progress,
             )
 
-        write_raster_dataset(filename, ds_out, driver, remove=remove)
+        write_raster_dataset(filename, ds_out, driver=driver, remove=remove)
 
         del ds_out
 
