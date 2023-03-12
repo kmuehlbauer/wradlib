@@ -1396,6 +1396,10 @@ def docstring(func):
     return wrapper
 
 
+def dim0(obj):
+    return list(set(obj.dims) & {"azimuth", "elevation"})[-1]
+
+
 class XarrayMethods:
     """BaseClass to bind xarray methods to wradlib SubAccessor
 
@@ -1463,6 +1467,13 @@ class UtilMethods(XarrayMethods):
             return derivate(self, *args, **kwargs)
         else:
             return derivate(self._obj, *args, **kwargs)
+
+    @docstring(dim0)
+    def dim0(self, *args, **kwargs):
+        if not isinstance(self, UtilMethods):
+            return dim0(self, *args, **kwargs)
+        else:
+            return dim0(self._obj, *args, **kwargs)
 
 
 if __name__ == "__main__":

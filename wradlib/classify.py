@@ -1124,22 +1124,24 @@ def msf_index_indep(msf, idp, obs):
 
 
 @msf_index_indep.register(xr.Dataset)
-def _msf_index_indep_xarray(msf_ds, obs):
-    def wrap_digitize(data, bins=None):
-        return np.digitize(data, bins)
+def _msf_index_indep_xarray(msf, obs):
+    msf = msf.to_array(dim="obs").transpose("hmc", ...)
+    dim0 = obs.wrl.util.dim0()
+    out = xr.apply_ufunc(
+        msf_index_indep,
+        msf,
+        msf.idp,
+        obs,
+        input_core_dims=[["hmc", "obs", "idp", "trapezoid"], ["idp"], [dim0, "range"]],
+        output_core_dims=[["hmc", "obs", dim0, "range", "trapezoid"]],
+        dask='parallelized',
+        output_dtypes=['i4'],
+    )
+    out.name = "msf_index_indep"
+    return out
 
-    idp = msf_ds.idp.values
-    bins = np.append(idp, idp[-1] + (idp[-1] - idp[-2]))
-    idx = xr.apply_ufunc(wrap_digitize,
-                         obs,
-                         dask='parallelized',
-                         kwargs=dict(bins=bins),
-                         output_dtypes=['i4']) - 1
-    # select bins
-    idx = xr.where((idx >= 0) & (idx < bins.shape[0] - 2), idx, 0)
-    return msf_ds.isel(idp=idx)
 
-
+@singledispatch
 def trapezoid(msf, obs):
     """Calculates membership of `obs` using trapezoidal
     membership functions
@@ -1160,6 +1162,8 @@ def trapezoid(msf, obs):
         Array which is of (obs.shape) containing calculated membership
         probabilities.
     """
+    shape = msf.shape[:-1]
+    obs = np.broadcast_to(obs, shape)
     out = np.zeros_like(obs)
 
     ones = (obs >= msf[..., 1]) & (obs <= msf[..., 2])
@@ -1176,28 +1180,6 @@ def trapezoid(msf, obs):
     )
 
     return out
-
-
-def _trapezoid_xarray(msf, obs):
-    ones = ((obs >= msf[..., 1]) & (obs <= msf[..., 2]))
-    zeros = ((obs < msf[..., 0]) | (obs > msf[..., 3]))
-    lower = ((obs >= msf[..., 0]) & (obs < msf[..., 1]))
-    higher = ((obs > msf[..., 2]) & (obs <= msf[..., 3]))
-
-    obs_lower = obs - msf[..., 0]
-    msf_lower = msf[..., 1] - msf[..., 0]
-    low = (obs_lower / msf_lower)
-
-    obs_higher = obs - msf[..., 3]
-    msf_higher = msf[..., 2] - msf[..., 3]
-    high = (obs_higher / msf_higher)
-
-    ret = xr.zeros_like(obs)  # * np.nan
-    # ret = ret.where(zeros, 0).where(ones, 1).where(lower, low).where(higher, high)
-    ret = xr.where(ones, 1, ret)
-    ret = xr.where(lower, low, ret)
-    ret = xr.where(higher, high, ret)
-    return ret  # .where(ret == np.nan, 0)
 
 
 @singledispatch
@@ -1228,14 +1210,25 @@ def fuzzyfi(msf, obs):
     return out
 
 
-@fuzzyfi.register(xr.Dataset)
-def _fuzzyfi_xarray(msf_ds, hmc_ds, msf_obs_mapping):
-    fuzz_ds = xr.Dataset()
-    for mf, hm in msf_obs_mapping.items():
-        obs = hmc_ds[hm]
-        msf = msf_ds[mf]
-        fuzz_ds = fuzz_ds.assign({mf: trapezoid(msf, obs)})
-    return fuzz_ds.transpose("hmc", ...)
+@fuzzyfi.register(xr.DataArray)
+def _fuzzyfi_xarray(msf, hmc_ds, msf_obs_mapping):
+    dim0 = hmc_ds.wrl.util.dim0()
+
+    rev = {v: k for k, v in msf_obs_mapping.items()}
+    obs = hmc_ds[list(msf_obs_mapping.values())].rename(rev)
+    obs = obs.to_array("obs")
+    out = xr.apply_ufunc(
+        trapezoid,
+        msf,
+        obs,
+        input_core_dims=[["hmc", "obs", dim0, "range", "trapezoid"], ["obs", dim0, "range"]],
+        output_core_dims=[["hmc", "obs", dim0, "range"]],
+        output_dtypes=float,
+        dask="parallelized",
+        dask_gufunc_kwargs=dict(allow_rechunk=True),
+    )
+    out.name = "fuzzyfi"
+    return out
 
 
 @singledispatch
@@ -1272,7 +1265,7 @@ def _probability_xarray(data, weights):
     Parameters
     ----------
     data : xarray.Dataset
-        Dataset containing containing the membership probability values.
+        Dataset containing the membership probability values.
     weights : :class:`numpy:numpy.ndarray`
         Array of length (observables) containing the weights for
         each observable.
@@ -1282,9 +1275,8 @@ def _probability_xarray(data, weights):
     out : xarray.DataArray
         Array containing weighted hmc-membership probabilities.
     """
-    out = data.to_array(dim="obs")
     w = weights.to_array(dim="obs")
-    out = (out * w).sum("obs") / w.sum("obs")
+    out = (data * w).sum("obs") / w.sum("obs")
     return out  # .transpose("hmc", ...)
 
 
@@ -1353,7 +1345,7 @@ def _classify_xarray(data, threshold=0.0):
     Returns
     -------
     out : xr.DataArray
-        DataArray containing containing probability scores.
+        DataArray containing probability scores.
         No precip is added on the top.
     """
     # handle no precipitation
@@ -1436,9 +1428,9 @@ class ClassifyMethods(util.XarrayMethods):
         else:
             return classify(self._obj, *args, **kwargs)
 
-    @util.docstring(_trapezoid_xarray)
-    def trapezoid(self, *args, **kwargs):
-        if not isinstance(self, ClassifyMethods):
-            return trapezoid(self, *args, **kwargs)
-        else:
-            return trapezoid(self._obj, *args, **kwargs)
+    # @util.docstring(_trapezoid_xarray)
+    # def trapezoid(self, *args, **kwargs):
+    #     if not isinstance(self, ClassifyMethods):
+    #         return trapezoid(self, *args, **kwargs)
+    #     else:
+    #         return trapezoid(self._obj, *args, **kwargs)
