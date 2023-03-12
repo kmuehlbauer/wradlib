@@ -153,6 +153,7 @@ def _filter_gabella_a_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
 
     """
+    dim0 = obj.wrl.util.dim0()
     wsize = kwargs.pop("wsize", 5)
     tr1 = kwargs.pop("tr1", 6.0)
     out = xr.apply_ufunc(
@@ -160,8 +161,8 @@ def _filter_gabella_a_xarray(obj, **kwargs):
         obj,
         wsize,
         tr1,
-        input_core_dims=[["azimuth", "range"], [], []],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [], []],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -263,11 +264,12 @@ def _filter_gabella_b_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
 
     """
+    dim0 = obj.wrl.util.dim0()
     out = xr.apply_ufunc(
         filter_gabella_b,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -397,11 +399,12 @@ def _filter_gabella_xarray(obj, **kwargs):
     See :ref:`/notebooks/classify/wradlib_clutter_gabella_example.ipynb`.
 
     """
+    dim0 = obj.wrl.util.dim0()
     out = xr.apply_ufunc(
         filter_gabella,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -554,12 +557,12 @@ def _histo_cut_xarray(obj, **kwargs):
 
     See :ref:`/notebooks/classify/wradlib_histo_cut_example.ipynb`.
     """
-
+    dim0 = obj.wrl.util.dim0()
     out = xr.apply_ufunc(
         histo_cut,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -864,7 +867,6 @@ def _classify_echo_fuzzy_xarray(obj, dat, **kwargs):
     :func:`~wradlib.dp.depolarization` - depolarization ratio
 
     """
-
     def _classify_echo_fuzzy_wrapper(*args, **kwargs):
         mom = ["rho", "phi", "ref", "dop", "zdr", "map"][: len(args)]
         dat = {name: value for name, value in zip(mom, args)}
@@ -873,12 +875,13 @@ def _classify_echo_fuzzy_xarray(obj, dat, **kwargs):
 
     mom = ["rho", "phi", "ref", "dop", "zdr", "map", "rho2", "dpr", "cpa"]
     args = [obj[dat[m]] for m in mom if m in dat]
-    input_core_dims = [["azimuth", "range"]] * len(dat)
+    dim0 = args[0].wrl.util.dim0()
+    input_core_dims = [[dim0, "range"]] * len(dat)
     out, mask = xr.apply_ufunc(
         _classify_echo_fuzzy_wrapper,
         *args,
         input_core_dims=input_core_dims,
-        output_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
+        output_core_dims=[[dim0, "range"], [dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -1062,9 +1065,10 @@ def _filter_window_distance_xarray(obj, **kwargs):
 
     :func:`~wradlib.classify.filter_gabella_b` - filter using a echo area
     """
+    dim0 = obj.wrl.util.dim0()
     rscale = obj.range.diff("range").median()
     if isinstance(obj, xr.Dataset):
-        dims = {"azimuth", "range"}
+        dims = {dim0, "range"}
         keep = xr.Dataset(
             {k: v for k, v in obj.data_vars.items() if set(v.dims) & dims != dims}
         )
@@ -1075,8 +1079,8 @@ def _filter_window_distance_xarray(obj, **kwargs):
         filter_window_distance,
         obj,
         rscale.values,
-        input_core_dims=[["azimuth", "range"], []],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], []],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -1213,7 +1217,6 @@ def fuzzyfi(msf, obs):
 @fuzzyfi.register(xr.DataArray)
 def _fuzzyfi_xarray(msf, hmc_ds, msf_obs_mapping):
     dim0 = hmc_ds.wrl.util.dim0()
-
     rev = {v: k for k, v in msf_obs_mapping.items()}
     obs = hmc_ds[list(msf_obs_mapping.values())].rename(rev)
     obs = obs.to_array("obs")

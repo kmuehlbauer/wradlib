@@ -365,6 +365,7 @@ def _reproject_xarray(obj, **kwargs):
     See :ref:`/notebooks/georeferencing/wradlib_georef_example.ipynb`.
     """
     obj = obj.copy()
+    dim0 = obj.wrl.util.dim0()
 
     if kwargs.get("projection_source", None) is not None:
         warnings.warn("projection_source kwarg ignored for xarray accessor")
@@ -379,14 +380,14 @@ def _reproject_xarray(obj, **kwargs):
         obj.y,
         obj.z,
         input_core_dims=[
-            ["azimuth", "range"],
-            ["azimuth", "range"],
-            ["azimuth", "range"],
+            [dim0, "range"],
+            [dim0, "range"],
+            [dim0, "range"],
         ],
         output_core_dims=[
-            ["azimuth", "range"],
-            ["azimuth", "range"],
-            ["azimuth", "range"],
+            [dim0, "range"],
+            [dim0, "range"],
+            [dim0, "range"],
         ],
         dask="parallelized",
         kwargs=kwargs,
