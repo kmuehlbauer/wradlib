@@ -210,13 +210,14 @@ def _process_raw_phidp_vulpiani_xarray(obj, *, winlen=7, **kwargs):
     kdp : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = obj.wrl.util.dim0()
     dr = obj.range.diff("range").median("range").values / 1000.0
     phidp, kdp = xr.apply_ufunc(
         process_raw_phidp_vulpiani,
         obj,
         dr,
-        input_core_dims=[["azimuth", "range"], [None]],
-        output_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [None]],
+        output_core_dims=[[dim0, "range"], [dim0, "range"]],
         dask="parallelized",
         kwargs=dict(winlen=winlen, **kwargs),
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -325,6 +326,7 @@ def _unfold_phi_vulpiani_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = phidp.wrl.util.dim0()
     phidp = kwargs.pop("phidp", None)
     kdp = kwargs.pop("kdp", None)
     if phidp is None or kdp is None:
@@ -339,8 +341,8 @@ def _unfold_phi_vulpiani_xarray(obj, **kwargs):
         unfold_phi_vulpiani,
         phidp,
         kdp,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
@@ -514,12 +516,13 @@ def _kdp_from_phidp_xarray(obj, *, winlen=7, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = obj.wrl.util.dim0()
     dr = obj.range.diff("range").median("range").values / 1000.0
     out = xr.apply_ufunc(
         kdp_from_phidp,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=dict(winlen=winlen, dr=dr, **kwargs),
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -624,6 +627,7 @@ def _unfold_phi_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = obj.wrl.util.dim0()
     phidp = kwargs.pop("phidp", None)
     rho = kwargs.pop("rho", None)
     if phidp is None or rho is None:
@@ -638,8 +642,8 @@ def _unfold_phi_xarray(obj, **kwargs):
         unfold_phi,
         phidp,
         rho,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -754,6 +758,7 @@ def _unfold_phi_naive_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = phidp.wrl.util.dim0()
     phidp = kwargs.pop("phidp", None)
     rho = kwargs.pop("rho", None)
     if phidp is None or rho is None:
@@ -768,8 +773,8 @@ def _unfold_phi_naive_xarray(obj, **kwargs):
         unfold_phi_naive,
         phidp,
         rho,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -850,8 +855,9 @@ def _texture_xarray(obj):
     texture : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = obj.wrl.util.dim0()
     if isinstance(obj, xr.Dataset):
-        dims = {"azimuth", "range"}
+        dims = {dim0, "range"}
         keep = xr.Dataset(
             {k: v for k, v in obj.data_vars.items() if set(v.dims) & dims != dims}
         )
@@ -861,8 +867,8 @@ def _texture_xarray(obj):
     out = xr.apply_ufunc(
         texture,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
@@ -934,6 +940,7 @@ def _depolarization_xarray(obj, **kwargs):
         array of depolarization ratios with the same shape as input data,
         numpy broadcasting rules apply
     """
+    dim0 = obj.wrl.util.dim0()
     zdr = kwargs.pop("zdr", None)
     rho = kwargs.pop("rho", None)
     if zdr is None or rho is None:
@@ -948,8 +955,8 @@ def _depolarization_xarray(obj, **kwargs):
         depolarization,
         zdr,
         rho,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )

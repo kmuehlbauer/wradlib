@@ -977,11 +977,12 @@ lanczos-low-noise-differentiators/>`_.
     out : :py:class:`xarray:xarray.DataArray`
         array of derivates
     """
+    dim0 = obj.wrl.util.dim0()
     out = xr.apply_ufunc(
         derivate,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
@@ -1048,11 +1049,12 @@ def _despeckle_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         output array
     """
+    dim0 = obj.wrl.util.dim0()
     out = xr.apply_ufunc(
         despeckle,
         obj,
-        input_core_dims=[["azimuth", "range"]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"]],
+        output_core_dims=[[dim0, "range"]],
         kwargs=kwargs,
         dask="parallelized",
         dask_gufunc_kwargs=dict(allow_rechunk=True),

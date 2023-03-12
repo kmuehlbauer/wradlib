@@ -82,6 +82,8 @@ def _bin_altitude_xarray(obj, **kwargs):
     z : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    # Todo: check if this works for elevation too
+    dim0 = obj.wrl.util.dim0()
     out = apply_ufunc(
         bin_altitude,
         obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
@@ -91,8 +93,8 @@ def _bin_altitude_xarray(obj, **kwargs):
             range=obj.range
         ),
         obj.altitude.values,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"], [None]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"], [None]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -157,6 +159,8 @@ def _bin_distance_xarray(obj, **kwargs):
     bin_distance : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    # Todo: check if this works for elevation too
+    dim0 = obj.wrl.util.dim0()
     out = apply_ufunc(
         bin_distance,
         obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
@@ -166,8 +170,8 @@ def _bin_distance_xarray(obj, **kwargs):
             range=obj.range
         ),
         obj.altitude.values,
-        input_core_dims=[["azimuth", "range"], ["azimuth", "range"], [None], [None]],
-        output_core_dims=[["azimuth", "range"]],
+        input_core_dims=[[dim0, "range"], [dim0, "range"], [None], [None]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -237,6 +241,8 @@ def _site_distance_xarray(obj, **kwargs):
     z : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
+    dim0 = obj.wrl.util.dim0()
+    # Todo: check if this works for elevation too
     binalt = bin_altitude(obj)
     out = apply_ufunc(
         site_distance,
@@ -248,11 +254,11 @@ def _site_distance_xarray(obj, **kwargs):
         ).assign_coords(range=binalt.range),
         binalt,
         input_core_dims=[
-            ["azimuth", "range"],
-            ["azimuth", "range"],
-            ["azimuth", "range"],
+            [dim0, "range"],
+            [dim0, "range"],
+            [dim0, "range"],
         ],
-        output_core_dims=[["azimuth", "range"]],
+        output_core_dims=[[dim0, "range"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),

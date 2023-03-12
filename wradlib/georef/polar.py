@@ -200,6 +200,8 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
     aeqd : :py:class:`gdal:osgeo.osr.SpatialReference`
         Destination Spatial Reference System (AEQD-Projection).
     """
+    dim0 = obj.wrl.util.dim0()
+    # Todo: check if this works for elevation too
     r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
         azimuth=obj.azimuth
     )
@@ -216,12 +218,12 @@ def _spherical_to_xyz_xarray(obj, **kwargs):
         theta,
         site,
         input_core_dims=[
-            ["azimuth", "range"],
-            ["azimuth", "range"],
-            ["azimuth"],
+            [dim0, "range"],
+            [dim0, "range"],
+            [dim0],
             [None],
         ],
-        output_core_dims=[["azimuth", "range", "xyz"], []],
+        output_core_dims=[[dim0, "range", "xyz"], []],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -340,6 +342,8 @@ def _spherical_to_proj_xarray(obj, **kwargs):
     coords : :py:class:`xarray:xarray.DataArray`
         Array of shape (..., 3). Contains projected map coordinates.
     """
+    dim0 = obj.wrl.util.dim0()
+    # Todo: check if this works for elevation too
     r = obj.range.expand_dims(dim={"azimuth": len(obj.azimuth)}).assign_coords(
         azimuth=obj.azimuth
     )
@@ -355,12 +359,12 @@ def _spherical_to_proj_xarray(obj, **kwargs):
         theta,
         site,
         input_core_dims=[
-            ["azimuth", "range"],
-            ["azimuth", "range"],
-            ["azimuth"],
+            [dim0, "range"],
+            [dim0, "range"],
+            [dim0],
             [None],
         ],
-        output_core_dims=[["azimuth", "range", "xyz"]],
+        output_core_dims=[[dim0, "range", "xyz"]],
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
@@ -557,7 +561,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
     ke : float
         adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths.
 
 
@@ -569,6 +573,7 @@ def _spherical_to_polyvert_xarray(obj, **kwargs):
         Destination Spatial Reference System (Projection).
         Defaults to wgs84 (epsg 4326).
     """
+    # Todo: check if this works for elevation too
     rdiff = obj.range.diff("range").median() / 2.0
     r = obj.range + rdiff
     phi = obj.azimuth
@@ -702,6 +707,7 @@ def _spherical_to_centroids_xarray(obj, **kwargs):
     ----
     Azimuth angles of 360 deg are internally converted to 0 deg.
     """
+    # Todo: check if this works for elevation too
     rdiff = obj.range.diff("range").median() / 2.0
     r = obj.range + rdiff
     phi = obj.azimuth
