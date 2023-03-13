@@ -1112,7 +1112,10 @@ def _plot_xarray(
         caax.grid(True)
 
     if da.sweep_mode == "azimuth_surveillance":
-        ax.set_aspect("equal", adjustable="box")
+        ax.set_box_aspect(1)
+        if cg:
+            caax.set_box_aspect(1)
+            paax.set_box_aspect(1)
 
     # set ax as current
     pl.sca(ax)
