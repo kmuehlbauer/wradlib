@@ -349,7 +349,7 @@ def _reproject_xarray(obj, **kwargs):
 
     Keyword Arguments
     -----------------
-    projection_target : :py:class:`gdal:osgeo.osr.SpatialReference`
+    trg_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
 
     area_of_interest : tuple
         tuple of floats (WestLongitudeDeg, SouthLatitudeDeg, EastLongitudeDeg,
@@ -365,37 +365,44 @@ def _reproject_xarray(obj, **kwargs):
     See :ref:`/notebooks/georeferencing/wradlib_georef_example.ipynb`.
     """
     obj = obj.copy()
-    dim0 = obj.wrl.util.dim0()
+    coords = kwargs.pop("coords", None)
 
-    if kwargs.get("projection_source", None) is not None:
-        warnings.warn("projection_source kwarg ignored for xarray accessor")
-    proj_crs = xd.georeference.get_crs(obj)
-    osr_crs = wkt_to_osr(proj_crs.to_wkt())
-    kwargs.setdefault("projection_source", osr_crs)
-    osr_trg_crs = kwargs.setdefault("projection_target", get_default_projection())
+    args = []
+    if coords is None:
+        coords = dict(x="x", y="y", z="z")
+    args.append(obj[coords.get("x")])
+    args.append(obj[coords.get("y")])
+    if "z" in coords:
+        args.append(obj[coords["z"]])
+    input_core_dims = [list(arg.dims) for arg in args]
+    output_core_dims = input_core_dims
 
-    obj["x"], obj["y"], obj["z"] = apply_ufunc(
+    if kwargs.get("src_crs", None) is not None:
+        warnings.warn("src_crs kwarg ignored for xarray accessor")
+    if "spatial_ref" in obj:
+        proj_crs = xd.georeference.get_crs(obj)
+        osr_crs = wkt_to_osr(proj_crs.to_wkt())
+    else:
+        osr_crs = get_default_projection()
+    kwargs.setdefault("src_crs", osr_crs)
+    osr_trg_crs = kwargs.setdefault("trg_crs", get_default_projection())
+
+    out = apply_ufunc(
         reproject,
-        obj.x,
-        obj.y,
-        obj.z,
-        input_core_dims=[
-            [dim0, "range"],
-            [dim0, "range"],
-            [dim0, "range"],
-        ],
-        output_core_dims=[
-            [dim0, "range"],
-            [dim0, "range"],
-            [dim0, "range"],
-        ],
+        *args,
+        input_core_dims=input_core_dims,
+        output_core_dims=output_core_dims,
         dask="parallelized",
         kwargs=kwargs,
         dask_gufunc_kwargs=dict(allow_rechunk=True),
     )
 
-    proj_crs = pyproj.CRS.from_wkt(osr_trg_crs.ExportToWkt(["FORMAT=WKT2_2018"]))
-    obj = xd.georeference.add_crs(obj, crs=proj_crs)
+    for c, v in zip(coords, out):
+        obj = obj.assign_coords({c: v})
+
+    if "spatial_ref" in obj:
+        proj_crs = pyproj.CRS.from_wkt(osr_trg_crs.ExportToWkt(["FORMAT=WKT2_2018"]))
+        obj = xd.georeference.add_crs(obj, crs=proj_crs)
 
     return obj
 
