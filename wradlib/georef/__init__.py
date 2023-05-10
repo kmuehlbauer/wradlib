@@ -40,7 +40,11 @@ from wradlib import util
 
 
 class GeorefMethods(
-    util.XarrayMethods, GeorefMiscMethods, GeorefPolarMethods, GeorefProjectionMethods
+    util.XarrayMethods,
+    GeorefMiscMethods,
+    GeorefPolarMethods,
+    GeorefProjectionMethods,
+    GeorefRectMethods,
 ):
     """wradlib xarray SubAccessor methods for Georef."""
 

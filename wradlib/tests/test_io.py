@@ -1179,10 +1179,10 @@ def test_write_raster_dataset():
     filename = "geo/bonn_new.tif"
     geofile = util.get_wradlib_data_file(filename)
     ds = io.gdal.open_raster(geofile)
-    io.gdal.write_raster_dataset(geofile + "asc", ds, "AAIGrid")
-    io.gdal.write_raster_dataset(geofile + "asc", ds, "AAIGrid", remove=True)
+    io.gdal.write_raster_dataset(geofile + "asc", ds, driver="AAIGrid")
+    io.gdal.write_raster_dataset(geofile + "asc", ds, driver="AAIGrid", remove=True)
     with pytest.raises(TypeError):
-        io.gdal.write_raster_dataset(geofile + "asc1", ds, "AIG")
+        io.gdal.write_raster_dataset(geofile + "asc1", ds, driver="AIG")
 
 
 @requires_data
