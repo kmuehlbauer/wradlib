@@ -19,16 +19,19 @@ __all__ = [
     "get_radolan_grid",
     "xyz_to_spherical",
     "grid_to_polyvert",
+    "GeorefRectMethods",
 ]
 __doc__ = __doc__.format("\n   ".join(__all__))
 __doctest_requires__ = {"get_radolan_grid": ["osgeo"]}
 
+from functools import singledispatch
 from warnings import warn
 
 import numpy as np
+from xarray import DataArray, Dataset
 
 from wradlib.georef import projection
-from wradlib.util import has_import, import_optional
+from wradlib.util import docstring, has_import, import_optional
 
 
 def get_radolan_coords(lon, lat, **kwargs):
@@ -351,7 +354,13 @@ def get_radolan_grid(nrows=None, ncols=None, **kwargs):
     return radolan_grid
 
 
-def xyz_to_spherical(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
+@singledispatch
+def xyz_to_spherical(*args, **kwargs):
+    pass
+
+
+@xyz_to_spherical.register(Dataset)
+def _xyz_to_spherical_numpy(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
     """Returns spherical representation (r, theta, phi) of given cartesian
     coordinates (x, y, z) with respect to the reference altitude (asl)
     considering earth's geometry (crs).
@@ -417,6 +426,44 @@ def xyz_to_spherical(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
     return r, phi, np.degrees(theta)
 
 
+@xyz_to_spherical.register(Dataset)
+@xyz_to_spherical.register(DataArray)
+def _xyz_to_spherical_xarray(obj, **kwargs):
+    """Returns spherical representation (r, theta, phi) of given cartesian
+    coordinates (x, y, z) with respect to the reference altitude (asl)
+    considering earth's geometry (crs).
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    crs : :py:class:`gdal:osgeo.osr.SpatialReference`
+        projection of the source coordinates (aeqd) with spheroid model
+        defaults to None.
+    ke : float
+        Adjustment factor to account for the refractivity gradient that
+        affects radar beam propagation. In principle this is wavelength-
+        dependent. The default of 4/3 is a good approximation for most
+        weather radar wavelengths
+
+    Returns
+    -------
+    obj : :py:class:`xarray:xarray.Dataset`
+        obj with added spherical coordinates.
+    """
+    r_sr, az_sr, elev_sr = _xyz_to_spherical_numpy(obj, altitude=obj.altitude, **kwargs)
+    obj = obj.assign_coords(
+        {
+            "range": r_sr,
+            "azimuth": az_sr,
+            "elevation": elev_sr,
+        }
+    )
+    return obj
+
+
 def grid_to_polyvert(grid, *, ravel=False):
     """Get polygonal vertices from rectangular grid coordinates.
 
@@ -448,3 +495,14 @@ def grid_to_polyvert(grid, *, ravel=False):
         polyvert = polyvert.reshape((-1, 5, 2))
 
     return polyvert
+
+
+class GeorefRectMethods:
+    """wradlib xarray SubAccessor methods for Georef Rect Methods."""
+
+    @docstring(_xyz_to_spherical_xarray)
+    def xyz_to_spherical(self, *args, **kwargs):
+        if not isinstance(self, GeorefRectMethods):
+            return xyz_to_spherical(self, *args, **kwargs)
+        else:
+            return xyz_to_spherical(self._obj, *args, **kwargs)

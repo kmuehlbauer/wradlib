@@ -1531,9 +1531,11 @@ def interpolate_polar(data, *, mask=None, ipclass=Nearest):
         2 dimensional array (azimuth, ranges) of floats;
 
         if no mask is assigned explicitly polar data should be a masked array
+
+    Keyword Arguments
+    -----------------
     mask : :class:`numpy:numpy.ndarray`
         boolean array with pixels to be interpolated set to True;
-
         must have the same shape as data
     ipclass : :class:`wradlib.ipol.IpolBase`
         A class which inherits from IpolBase.

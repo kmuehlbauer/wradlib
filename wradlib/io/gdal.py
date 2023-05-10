@@ -180,8 +180,11 @@ def write_raster_dataset(fpath, dataset, *, driver="GTiff", options=None, remove
         A file path - should have file extension corresponding to format.
     dataset : :py:class:`gdal:osgeo.gdal.Dataset`
         gdal.Dataset  gdal raster dataset
-    rformat : str
-        gdal raster format string
+
+    Keyword Arguments
+    -----------------
+    driver : str
+        gdal raster format driver string
     options : list
         List of option strings for the corresponding format.
     remove : bool

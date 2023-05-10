@@ -140,7 +140,7 @@ The xarray based radar readers for polar data have been moved to {{xradar}}-pack
 ```python
 swp = xarray.open_dataset(filename, engine=engine, group=group)
 ```
-`engine` would we one `BackendName` defined in {{xradar}}, where currently available are:
+`engine` would be one `BackendName` defined in {{xradar}}, where currently available are:
 
 - [cfradial1](inv:xradar:std:doc#notebooks/CfRadial1)
 - [odim](inv:xradar:std:doc#notebooks/ODIM_H5)
@@ -174,7 +174,7 @@ The same way different metadata groups can be retrieved. Just require the wanted
 {{wradlib}}'s `RadarVolume` is replaced by {py:class}`datatree:datatree.DataTree`.
 
 ```python
-vol = xradar.open_cfradial1_datatree(filename)
+vol = xradar.io.open_cfradial1_datatree(filename)
 ```
 
 Here, as well as above, each backend has it's own loading function:

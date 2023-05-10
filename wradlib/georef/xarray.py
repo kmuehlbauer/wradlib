@@ -100,7 +100,7 @@ def create_xarray_dataarray(
     dataset : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    sweep_mode = kwargs.pop("sweep_mode", "azimuth_surveillance")
+    # sweep_mode = kwargs.pop("sweep_mode", "azimuth_surveillance")
     # check coordinate tuple
     if site and len(site) < 3:
         raise ValueError(
@@ -109,17 +109,28 @@ def create_xarray_dataarray(
         )
 
     if phi is None:
-        phi = np.arange(data.shape[0], dtype=np.float_)
-        phi += (phi[1] - phi[0]) / 2.0
+        if sweep_mode == "azimuth_surveillance":
+            phi = np.arange(data.shape[0], dtype=np.float_)
+            phi += (phi[1] - phi[0]) / 2.0
+        else:
+            phi = 0.0
 
     if r is None:
         r = np.arange(data.shape[1], dtype=np.float_)
         r += (r[1] - r[0]) / 2.0
 
     if theta is None:
-        theta = 0.0
+        if sweep_mode == "rhi":
+            theta = np.arange(data.shape[0], dtype=np.float_)
+            theta += (theta[1] - theta[0]) / 2.0
+        else:
+            theta = 0.0
+
     if np.isscalar(theta):
         theta = np.ones_like(phi) * theta
+
+    if np.isscalar(phi):
+        phi = np.ones_like(theta) * phi
 
     r = r.copy()
     phi = phi.copy()
@@ -131,7 +142,8 @@ def create_xarray_dataarray(
     dims = collections.OrderedDict()
     dim0 = kwargs.pop("dim0", "azimuth")
     dim1 = kwargs.pop("dim1", "range")
-    dims[dim0] = np.arange(phi.shape[0])
+    ang = theta if sweep_mode == "rhi" else phi
+    dims[dim0] = np.arange(ang.shape[0])
     dims[dim1] = r / rf
     coords = {
         "azimuth": ([dim0], phi),
