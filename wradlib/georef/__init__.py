@@ -45,6 +45,7 @@ class GeorefMethods(
     GeorefPolarMethods,
     GeorefProjectionMethods,
     GeorefRectMethods,
+    GeorefSatelliteMethods,
 ):
     """wradlib xarray SubAccessor methods for Georef."""
 

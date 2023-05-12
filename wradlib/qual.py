@@ -25,13 +25,30 @@ fields except that they exhibit the numpy ndarray interface.
 
    {}
 """
-__all__ = ["pulse_volume", "beam_block_frac", "cum_beam_block_frac", "get_bb_ratio"]
+__all__ = [
+    "pulse_volume",
+    "beam_block_frac",
+    "cum_beam_block_frac",
+    "get_bb_ratio",
+    "QualMethods",
+]
 __doc__ = __doc__.format("\n   ".join(__all__))
 
+from functools import singledispatch
+
 import numpy as np
+from xarray import DataArray
+
+from wradlib.util import XarrayMethods, docstring
 
 
-def pulse_volume(ranges, h, theta):
+@singledispatch
+def pulse_volume(*args, **kwargs):
+    pass
+
+
+@pulse_volume.register(np.ndarray)
+def _pulse_volume_numpy(ranges, h, theta):
     """Calculates the sampling volume of the radar beam per bin depending on \
     range and aperture.
 
@@ -66,6 +83,47 @@ def pulse_volume(ranges, h, theta):
 
     """
     return np.pi * h * (ranges**2) * (np.tan(np.radians(theta / 2.0))) ** 2
+
+
+@pulse_volume.register(DataArray)
+def _pulse_volume_xarray(obj, h, theta, **kwargs):
+    """Calculates the sampling volume of the radar beam per bin depending on \
+    range and aperture.
+
+    We assume a cone frustum which has the volume
+    :math:`V=(\\pi/3) \\cdot h \\cdot (R^2 + R \\cdot r + r^2)`.
+    R and r are the radii of the two frustum surface circles. Assuming that the
+    pulse width is small compared to the range, we get
+    :math:`R=r= \\tan ( 0.5 \\cdot \\theta \\cdot \\pi/180 ) \\cdot range`
+    with theta being the aperture angle (beam width).
+    Thus, the pulse volume simply becomes the volume of a cylinder with
+    :math:`V=\\pi \\cdot h \\cdot range^2 \\cdot \\tan(
+    0.5 \\cdot \\theta \\cdot \\pi/180)^2`
+
+    Parameters
+    ----------
+    obj : :py:class:`xarray:xarray.DataArray` | :py:class:`xarray:xarray.Dataset`
+
+    Keyword Arguments
+    -----------------
+    h : float
+        pulse width (which corresponds to the range resolution [m])
+    theta : float
+        the aperture angle (beam width) of the radar beam [degree]
+
+    Returns
+    -------
+    obj : :py:class:`xarray:xarray.Dataset`
+        obj with volumes of radar bins at each range in `ranges` [:math:`m^3`].
+
+    Examples
+    --------
+
+    See :ref:`/notebooks/workflow/recipe1.ipynb`.
+
+    """
+    # vol = _pulse_volume_numpy(obj, h, theta)
+    return _pulse_volume_numpy(obj, h, theta)
 
 
 def beam_block_frac(th, bh, a):
@@ -246,6 +304,17 @@ def get_bb_ratio(bb_height, bb_width, quality, zp_r):
     ratio = (zp_r - zmlb) / (zmlt - zmlb)
 
     return ratio, ibb
+
+
+class QualMethods(XarrayMethods):
+    """wradlib xarray SubAccessor methods for Qual Methods."""
+
+    @docstring(_pulse_volume_xarray)
+    def pulse_volume(self, *args, **kwargs):
+        if not isinstance(self, QualMethods):
+            return pulse_volume(self, *args, **kwargs)
+        else:
+            return pulse_volume(self._obj, *args, **kwargs)
 
 
 if __name__ == "__main__":

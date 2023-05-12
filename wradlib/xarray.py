@@ -39,6 +39,7 @@ class WradlibXarrayAccessor:
         "_classify",
         "_dp",
         "_georef",
+        "_qual",
         "_trafo",
         "_util",
         "_vis",
@@ -76,6 +77,13 @@ class WradlibXarrayAccessor:
         if self._georef is None:
             self._georef = wradlib.georef.GeorefMethods(self._obj)
         return self._georef
+
+    @property
+    def qual(self):
+        """SubAccessor for :class:`wradlib.qual.QualMethods`."""
+        if self._qual is None:
+            self._qual = wradlib.qual.QualMethods(self._obj)
+        return self._qual
 
     @property
     def trafo(self):
