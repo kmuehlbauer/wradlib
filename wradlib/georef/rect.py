@@ -28,7 +28,7 @@ from functools import singledispatch
 from warnings import warn
 
 import numpy as np
-from xarray import DataArray, Dataset
+from xarray import DataArray, Dataset, concat
 
 from wradlib.georef import projection
 from wradlib.util import docstring, has_import, import_optional
@@ -359,7 +359,7 @@ def xyz_to_spherical(*args, **kwargs):
     pass
 
 
-@xyz_to_spherical.register(Dataset)
+@xyz_to_spherical.register(np.ndarray)
 def _xyz_to_spherical_numpy(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
     """Returns spherical representation (r, theta, phi) of given cartesian
     coordinates (x, y, z) with respect to the reference altitude (asl)
@@ -378,7 +378,7 @@ def _xyz_to_spherical_numpy(xyz, *, altitude=0, crs=None, ke=4.0 / 3.0):
     ke : float
         Adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths
 
     Returns
@@ -445,7 +445,7 @@ def _xyz_to_spherical_xarray(obj, **kwargs):
     ke : float
         Adjustment factor to account for the refractivity gradient that
         affects radar beam propagation. In principle this is wavelength-
-        dependent. The default of 4/3 is a good approximation for most
+        dependend. The default of 4/3 is a good approximation for most
         weather radar wavelengths
 
     Returns
@@ -453,7 +453,12 @@ def _xyz_to_spherical_xarray(obj, **kwargs):
     obj : :py:class:`xarray:xarray.Dataset`
         obj with added spherical coordinates.
     """
-    r_sr, az_sr, elev_sr = _xyz_to_spherical_numpy(obj, altitude=obj.altitude, **kwargs)
+    # transform xp,yp,zp to ncoord
+    xyzp = concat([obj.xp, obj.yp, obj.zp], dim="ncoord").transpose(..., "ncoord")
+
+    r_sr, az_sr, elev_sr = _xyz_to_spherical_numpy(
+        xyzp, altitude=xyzp.altitude, **kwargs
+    )
     obj = obj.assign_coords(
         {
             "range": r_sr,
