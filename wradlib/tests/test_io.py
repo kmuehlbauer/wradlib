@@ -1090,6 +1090,7 @@ def test_open_radolan_mfdataset():
     data = io.radolan.open_radolan_mfdataset(rw_file)
     assert data.RW.shape == (900, 900)
     filename2 = "radolan/misc/raa01-rw_10000-1408102050-dwd---bin.gz"
+    # just fetching file
     util.get_wradlib_data_file(filename2)
     data = io.radolan.open_radolan_mfdataset(rw_file[:-23] + "*.gz", concat_dim="time")
     assert data.RW.shape == (2, 900, 900)

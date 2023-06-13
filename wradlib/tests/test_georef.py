@@ -7,6 +7,7 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 import xarray as xr
+from packaging.version import Version
 
 import wradlib
 from wradlib import georef, util
@@ -572,8 +573,18 @@ def test_proj4_to_osr():
     srs2 = osr.SpatialReference()
     srs2.ImportFromProj4(p4)
     assert crs.IsSame(srs2)
-    with pytest.raises(ValueError):
+
+    # workaround AutoIdentify issue GH #628
+    if Version(gdal.__version__) >= Version("3.7.0"):
+        error = RuntimeError
+        errmsg = "PROJ: proj_create: Error 1027 (Invalid value for an argument)"
+    else:
+        error = ValueError
+        errmsg = "projstr validates to 'ogr.OGRERR_CORRUPT_DATA'and can't be imported as OSR object"
+
+    with pytest.raises(error) as err:
         georef.projstr_to_osr("+proj=lcc1")
+        assert errmsg == str(err)
 
 
 @requires_gdal
@@ -589,11 +600,19 @@ def test_reproject():
     proj_wgs84.ImportFromEPSG(4326)
     lon0, lat0, alt0 = 7.0, 53.0, 0.0
     x0, y0, z0 = georef.reproject(lon0, lat0, alt0, src_crs=proj_wgs84, trg_crs=proj_gk)
+
+    # 3D variant
     lon, lat, alt = georef.reproject(x0, y0, z0, src_crs=proj_gk, trg_crs=proj_wgs84)
     assert pytest.approx(lon) == 7.0
     assert pytest.approx(lat) == 53.0
     assert pytest.approx(alt) == 0.0
 
+    x, y, z = georef.reproject(lon, lat, alt, src_crs=proj_wgs84, trg_crs=proj_gk)
+    assert pytest.approx(x) == x0
+    assert pytest.approx(y) == y0
+    assert pytest.approx(z) == z0
+
+    # 2D variant
     lon, lat = georef.reproject(
         np.stack((x0, y0), axis=-1),
         src_crs=proj_gk,
@@ -601,11 +620,6 @@ def test_reproject():
     )
     assert pytest.approx(lon) == 7.0
     assert pytest.approx(lat) == 53.0
-
-    lon, lat, alt = georef.reproject(x0, y0, z0, src_crs=proj_gk, trg_crs=proj_wgs84)
-    assert pytest.approx(lon) == 7.0
-    assert pytest.approx(lat) == 53.0
-    assert pytest.approx(alt) == 0.0
 
 
 @requires_gdal
@@ -628,7 +642,7 @@ def test_reproject_area_of_interest():
         pcoords0,
         src_crs=proj_utm,
         trg_crs=proj_gk,
-        area_of_interest=(2600000, 5900000, 2650000, 6000000),
+        area_of_interest=(6.0, 50.0, 10.0, 60.0),
     )
     pcoords2 = georef.reproject(
         pcoords1,

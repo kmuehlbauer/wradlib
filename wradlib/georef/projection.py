@@ -215,7 +215,10 @@ def projstr_to_osr(projstr):
     """
     crs = osr.SpatialReference()
     crs.ImportFromProj4(projstr)
-    crs.AutoIdentifyEPSG()
+    try:
+        crs.AutoIdentifyEPSG()
+    except RuntimeError:
+        pass
 
     if crs.Validate() == ogr.OGRERR_CORRUPT_DATA:
         raise ValueError(
