@@ -353,6 +353,8 @@ def _reproject_xarray(obj, **kwargs):
     Keyword Arguments
     -----------------
     trg_crs : :py:class:`gdal:osgeo.osr.SpatialReference`
+    coords : dict
+        Mapping of coordinates.
 
     area_of_interest : tuple
         tuple of floats (WestLongitudeDeg, SouthLatitudeDeg, EastLongitudeDeg,

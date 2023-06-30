@@ -326,7 +326,7 @@ def _unfold_phi_vulpiani_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    dim0 = phidp.wrl.util.dim0()
+    dim0 = obj.wrl.util.dim0()
     phidp = kwargs.pop("phidp", None)
     kdp = kwargs.pop("kdp", None)
     if phidp is None or kdp is None:
@@ -758,7 +758,7 @@ def _unfold_phi_naive_xarray(obj, **kwargs):
     out : :py:class:`xarray:xarray.DataArray`
         DataArray
     """
-    dim0 = phidp.wrl.util.dim0()
+    dim0 = obj.wrl.util.dim0()
     phidp = kwargs.pop("phidp", None)
     rho = kwargs.pop("rho", None)
     if phidp is None or rho is None:
@@ -887,7 +887,7 @@ def _texture_xarray(obj):
 
 
 @singledispatch
-def depolarization(zdr, rho):
+def depolarization(zdr: float | np.ndarray, rho):
     """Compute the depolarization ration.
 
     Compute the depolarization ration using differential
@@ -915,7 +915,7 @@ def depolarization(zdr, rho):
 
 
 @depolarization.register(xr.Dataset)
-def _depolarization_xarray(obj, **kwargs):
+def _depolarization_xarray(obj: xr.Dataset, **kwargs):
     """Compute the depolarization ration.
 
     Compute the depolarization ration using differential

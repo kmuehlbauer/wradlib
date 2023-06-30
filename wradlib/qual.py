@@ -336,18 +336,18 @@ def _get_bb_ratio_xarray(obj):
         to the BB.
     """
     quality = obj["qualityBB"]
-    qtype = obj["qualityTypePrecip"]
+    qtype = obj.get("qualityTypePrecip")
     zp_r = obj["zp"]
     bb_height = obj["heightBB"]
     bb_width = obj["widthBB"]
 
-    quality = xr.where(((quality == 0) | (quality == 1)) & (qtype == 1), 1, quality)
-    quality = xr.where(((quality > 1) | (quality > 2)), 2, quality)
-    quality = xr.where(((quality == 1) | (quality == 2)), quality, 0)
+    if qtype is not None:
+        quality = xr.where(((quality == 0) | (quality == 1)) & (qtype == 1), 1, quality)
+        quality = xr.where(((quality > 1) | (quality > 2)), 2, quality)
+        quality = xr.where(((quality == 1) | (quality == 2)), quality, 0)
 
     # parameters for bb detection
     ibb = (bb_height > 0) & (bb_width > 0) & (quality == 1)
-    ibb0 = (bb_height == 0) & (bb_width == 0) & (quality == 1)
 
     # set non-bb-pixels to np.nan
     bb_height_m = bb_height.where(ibb)
@@ -362,7 +362,9 @@ def _get_bb_ratio_xarray(obj):
     # get ratio connected to brightband height
     ratio = (zp_r - zmlb) / (zmlt - zmlb)
 
-    ratio = xr.where(ibb0, 0, ratio)
+    if qtype is not None:
+        ibb0 = (bb_height == 0) & (bb_width == 0) & (quality == 1)
+        ratio = xr.where(ibb0, 0, ratio)
 
     return obj.assign(bb_ratio=ratio, bb_mask=ibb)
 
