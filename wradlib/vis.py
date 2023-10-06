@@ -909,8 +909,14 @@ def plot(
         else:
             ax = fig.add_subplot(ax, projection=sproj)
 
+    cbar_kwargs = kwargs.pop("cbar_kwargs", {})
+
     if cg:
         plax = paax
+        cbar_kwargs.update(
+            ax=cbar_kwargs.pop("ax", [ax, caax, paax]),
+            pad=cbar_kwargs.pop("pad", 0.085),
+        )
         infer_intervals = kwargs.pop("infer_intervals", False)
         if func == "pcolormesh":
             kwargs.update(dict(shading="auto"))
@@ -937,6 +943,7 @@ def plot(
         y=yp,
         ax=plax,
         infer_intervals=infer_intervals,
+        cbar_kwargs=cbar_kwargs,
         **kwargs,
     )
 
