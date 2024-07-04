@@ -340,7 +340,7 @@ def filter_gabella(
     bad = np.isnan(obj)
     if rm_nans:
         obj = obj.copy()
-        obj[bad] = np.Inf
+        obj[bad] = np.inf
     ntr1 = filter_gabella_a(
         obj, wsize=wsize, tr1=tr1, cartesian=cartesian, radial=radial
     )
