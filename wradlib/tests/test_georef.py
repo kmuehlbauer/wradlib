@@ -1608,8 +1608,8 @@ def test_georeference_dataset(xr_data):
 
 @pytest.mark.parametrize(
     "crs,gr_follows_x",
-    [(None, True), (4979, False), (3433, True)],
-    ids=["aeqd", "geographic", "projected_feet"],
+    [(None, True), (4979, False), (3433, True), (3857, True)],
+    ids=["aeqd", "geographic", "projected_feet", "meeeh"],
 )
 def test_georeference_z_gr_units(crs, gr_follows_x):
     # z is a beam height in meters whatever the target CRS is, so it must not
@@ -1624,6 +1624,12 @@ def test_georeference_z_gr_units(crs, gr_follows_x):
         sweep_mode="azimuth_surveillance",
     )
     da = georef.georeference(da, crs=crs)
+    print(da.crs_wkt.attrs["crs_wkt"])
+    print(da.x.attrs)
+    print(da.z.attrs)
+    print(da.gr.attrs)
+    print(da.z.max().values)
+    print(da.gr.max().values)
 
     assert da.z.attrs["units"] == "meters"
     assert da.gr.attrs["units"] == (da.x.attrs["units"] if gr_follows_x else "meters")

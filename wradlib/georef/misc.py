@@ -324,6 +324,7 @@ def ground_range(points, center, crs):
         )
         return gr.reshape(lon.shape)  # in meters
     else:
+        print(center[0])
         # Projected CRS: Euclidean distance in CRS units
         dx = points[..., 0] - center[0]
         dy = points[..., 1] - center[1]
